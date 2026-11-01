@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Brote</title>
+    <meta
+      name="description"
+      content="Aplicación móvil PWA de entrenamiento activo, planificación semanal, estadísticas de progreso y sistema de niveles RPG con temas desbloqueables."
+    />
+    <meta property="og:title" content="Brote" />
+    <meta
+      property="og:description"
+      content="Aplicación móvil PWA de entrenamiento activo, planificación semanal, estadísticas de progreso y sistema de niveles RPG con temas desbloqueables."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- PWA & Mobile Viewport Meta -->
+    <meta name="theme-color" content="#0d0e0d" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Brote" />
+    <link id="app-apple-touch-icon" rel="apple-touch-icon" href="/apple-touch-icon-dark.png" />
+    <link id="app-favicon-svg" rel="icon" type="image/svg+xml" href="/icon-dark.svg" />
+    <link id="app-favicon-png" rel="alternate icon" type="image/png" href="/pwa-dark-192x192.png" />
+
+    <!-- Typography: Outfit (Display), Plus Jakarta Sans (Body), JetBrains Mono (Metrics) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Outfit:wght@600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <script>
+      (function () {
+        try {
+          var raw =
+            localStorage.getItem('brote_app_state_v2') ||
+            localStorage.getItem('kinetix_app_state_v2');
+          var parsed = raw ? JSON.parse(raw) : null;
+          var isLight = parsed && parsed.themeMode === 'light';
+          var root = document.documentElement;
+          root.dataset.themeMode = isLight ? 'light' : 'dark';
+          root.classList.toggle('dark', !isLight);
+          var metaTheme = document.querySelector('meta[name="theme-color"]');
+          if (metaTheme) metaTheme.setAttribute('content', isLight ? '#f5f4ef' : '#0d0e0d');
+          var svgIcon = document.getElementById('app-favicon-svg');
+          if (svgIcon) svgIcon.setAttribute('href', isLight ? '/icon-light.svg' : '/icon-dark.svg');
+          var pngIcon = document.getElementById('app-favicon-png');
+          if (pngIcon)
+            pngIcon.setAttribute('href', isLight ? '/pwa-light-192x192.png' : '/pwa-dark-192x192.png');
+          var appleIcon = document.getElementById('app-apple-touch-icon');
+          if (appleIcon)
+            appleIcon.setAttribute(
+              'href',
+              isLight ? '/apple-touch-icon-light.png' : '/apple-touch-icon-dark.png'
+            );
+          var manifestLink = document.querySelector('link[rel="manifest"]');
+          if (manifestLink)
+            manifestLink.setAttribute(
+              'href',
+              isLight ? '/manifest-light.webmanifest' : '/manifest-dark.webmanifest'
+            );
+        } catch (e) {}
+      })();
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
