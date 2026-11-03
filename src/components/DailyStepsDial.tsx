@@ -1,5 +1,6 @@
 /**
- * Instrumento circular interactivo de pasos diarios:
+ * Cronógrafo circular interactivo de pasos diarios (estilo Nothing OS × Cyberpunk):
+ * - Escala radial de 60 marcas técnicas con iluminación progresiva.
  * - Permite girar el anillo con el dedo o tocar el centro para escribir la cifra exacta.
  * - Permite editar el objetivo diario de pasos tocando el límite superior.
  */
@@ -21,26 +22,29 @@ interface DailyStepsDialProps {
   onUpdateStepGoal: (newGoal: number) => void;
 }
 
-const DIAL_TICKS_SVG_PATH = (() => {
-  let path = '';
-  for (let i = 0; i < 36; i += 1) {
-    const rad = (i * 10 * Math.PI) / 180 - Math.PI / 2;
-    const isMajorTick = i % 3 === 0;
-    const innerRadius = isMajorTick ? 95.5 : 97.5;
-    const outerRadius = 100.5;
-    const x1 = (110 + innerRadius * Math.cos(rad)).toFixed(1);
-    const y1 = (110 + innerRadius * Math.sin(rad)).toFixed(1);
-    const x2 = (110 + outerRadius * Math.cos(rad)).toFixed(1);
-    const y2 = (110 + outerRadius * Math.sin(rad)).toFixed(1);
-    path += `M${x1} ${y1}L${x2} ${y2}`;
-  }
-  return path;
-})();
-
-const DIAL_SIZE = 220;
+const DIAL_SIZE = 224;
 const DIAL_CENTER = DIAL_SIZE / 2;
-const DIAL_RADIUS = 84;
+const DIAL_RADIUS = 82;
 const DIAL_CIRCUMFERENCE = 2 * Math.PI * DIAL_RADIUS;
+const TICK_COUNT = 60;
+
+const CHRONO_TICKS = Array.from({ length: TICK_COUNT }, (_, i) => {
+  const rad = (i * (360 / TICK_COUNT) * Math.PI) / 180 - Math.PI / 2;
+  const isCardinal = i % 15 === 0;
+  const isMajor = i % 5 === 0;
+  const innerRadius = isCardinal ? 93.5 : isMajor ? 95.5 : 98;
+  const outerRadius = 102.5;
+  return {
+    index: i,
+    threshold: i / TICK_COUNT,
+    isCardinal,
+    isMajor,
+    x1: Number((DIAL_CENTER + innerRadius * Math.cos(rad)).toFixed(2)),
+    y1: Number((DIAL_CENTER + innerRadius * Math.sin(rad)).toFixed(2)),
+    x2: Number((DIAL_CENTER + outerRadius * Math.cos(rad)).toFixed(2)),
+    y2: Number((DIAL_CENTER + outerRadius * Math.sin(rad)).toFixed(2)),
+  };
+});
 
 function computeDialStepsFromPointer(
   clientX: number,
@@ -290,9 +294,9 @@ export const DailyStepsDial: React.FC<DailyStepsDialProps> = React.memo(({
   };
 
   return (
-    <section className="lg:col-span-5 sheet-panel p-4 sm:p-5">
+    <section className="lg:col-span-5 sheet-panel ndot-surface p-4 sm:p-5">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-bold text-fg">{t.steps_title}</h2>
+        <h2 className="text-lg font-bold uppercase tracking-wide text-fg">{t.steps_title}</h2>
 
         {!isSelectedPast && isEditingGoal ? (
           <form
@@ -331,7 +335,7 @@ export const DailyStepsDial: React.FC<DailyStepsDialProps> = React.memo(({
       </div>
 
       <div className="mt-3 flex flex-col items-center justify-center">
-        <div className="relative w-[216px] h-[216px] flex items-center justify-center select-none">
+        <div className="relative w-[220px] h-[220px] flex items-center justify-center select-none">
           <svg
             ref={svgRef}
             viewBox={`0 0 ${DIAL_SIZE} ${DIAL_SIZE}`}
@@ -350,56 +354,76 @@ export const DailyStepsDial: React.FC<DailyStepsDialProps> = React.memo(({
             aria-valuemax={isDialInteractive ? activeStepLimit : undefined}
             aria-valuenow={isDialInteractive ? displayedSteps : undefined}
           >
-            <path
-              d={DIAL_TICKS_SVG_PATH}
+            {/* Escala radial de cronógrafo Nothing de 60 marcas */}
+            {CHRONO_TICKS.map((tick) => {
+              const isLit = fillRatio > 0 && tick.threshold <= fillRatio + 0.001;
+              return (
+                <line
+                  key={tick.index}
+                  x1={tick.x1}
+                  y1={tick.y1}
+                  x2={tick.x2}
+                  y2={tick.y2}
+                  stroke={isLit ? 'var(--app-accent-fill)' : 'var(--app-border-strong)'}
+                  strokeWidth={tick.isCardinal ? 2 : tick.isMajor ? 1.5 : 1}
+                  strokeOpacity={isLit ? 1 : tick.isMajor ? 0.85 : 0.45}
+                />
+              );
+            })}
+
+            {/* Anillo interior punteado de precisión */}
+            <circle
+              cx={DIAL_CENTER}
+              cy={DIAL_CENTER}
+              r={68}
               fill="none"
-              stroke="currentColor"
-              strokeWidth="1.2"
-              strokeLinecap="round"
-              className="text-subtle"
+              stroke="var(--app-border-strong)"
+              strokeWidth="1"
+              strokeDasharray="2 5"
+              strokeOpacity="0.6"
             />
 
+            {/* Pista principal */}
             <circle
               cx={DIAL_CENTER}
               cy={DIAL_CENTER}
               r={DIAL_RADIUS}
               fill="none"
-              stroke="currentColor"
-              strokeWidth="10"
-              className="text-elevated"
+              stroke="var(--app-elevated)"
+              strokeWidth="8"
             />
 
+            {/* Arco activo con terminación geométrica recta */}
             <circle
               cx={DIAL_CENTER}
               cy={DIAL_CENTER}
               r={DIAL_RADIUS}
               fill="none"
-              stroke="currentColor"
-              strokeWidth="10"
-              strokeLinecap="round"
+              stroke="var(--app-accent-fill)"
+              strokeWidth="8"
+              strokeLinecap="butt"
               strokeDasharray={DIAL_CIRCUMFERENCE}
               strokeDashoffset={dashOffset}
               transform={`rotate(-90 ${DIAL_CENTER} ${DIAL_CENTER})`}
-              className="text-accent"
             />
 
             {isDialInteractive && (
-              <>
+              <g transform={`translate(${thumbX} ${thumbY})`}>
                 <circle
-                  cx={thumbX}
-                  cy={thumbY}
+                  cx={0}
+                  cy={0}
                   r={8.5}
-                  fill="currentColor"
-                  className="text-fg"
+                  fill="var(--app-fg)"
+                  stroke="var(--app-canvas)"
+                  strokeWidth={2}
                 />
                 <circle
-                  cx={thumbX}
-                  cy={thumbY}
-                  r={3.5}
-                  fill="currentColor"
-                  className="text-canvas"
+                  cx={0}
+                  cy={0}
+                  r={3}
+                  fill="var(--app-canvas)"
                 />
-              </>
+              </g>
             )}
           </svg>
 
@@ -428,7 +452,7 @@ export const DailyStepsDial: React.FC<DailyStepsDialProps> = React.memo(({
               <button
                 type="button"
                 onClick={openExactStepsInput}
-                className="pointer-events-auto min-h-[54px] px-3 rounded-lg flex flex-col items-center justify-center hover:bg-elevated/60 transition cursor-pointer"
+                className="pointer-events-auto min-h-[54px] px-3 rounded-[4px] flex flex-col items-center justify-center hover:bg-elevated/70 transition cursor-pointer"
               >
                 <span className="font-mono text-3xl font-bold tracking-tight text-fg tabular-nums">
                   {displayedSteps.toLocaleString(locale)}
@@ -436,7 +460,7 @@ export const DailyStepsDial: React.FC<DailyStepsDialProps> = React.memo(({
                 <span className="text-[11px] font-mono text-fg-muted tabular-nums mt-0.5">
                   {(displayedSteps * KM_PER_STEP).toFixed(1)} {t.steps_km_unit}
                   {displayedStepsXp > 0 && (
-                    <span className="text-accent">
+                    <span className="text-accent font-semibold">
                       {' '}
                       · +{displayedStepsXp} {t.profile_xp_unit}
                     </span>
@@ -451,7 +475,7 @@ export const DailyStepsDial: React.FC<DailyStepsDialProps> = React.memo(({
                 <span className="text-[11px] font-mono text-fg-muted tabular-nums mt-0.5">
                   {(displayedSteps * KM_PER_STEP).toFixed(1)} {t.steps_km_unit}
                   {displayedStepsXp > 0 && (
-                    <span className="text-accent">
+                    <span className="text-accent font-semibold">
                       {' '}
                       · +{displayedStepsXp} {t.profile_xp_unit}
                     </span>

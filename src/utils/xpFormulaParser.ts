@@ -389,6 +389,12 @@ export function evaluateXpFormula(
       return Math.floor(30 * Math.sqrt(safeVal));
     }
     if (
+      trimmed === 'Math.floor(28 * Math.sqrt(minutos))' ||
+      trimmed === 'Math.floor(28 * Math.sqrt(minutes))'
+    ) {
+      return Math.floor(28 * Math.sqrt(safeVal));
+    }
+    if (
       trimmed === 'Math.floor(25 * Math.sqrt(minutos))' ||
       trimmed === 'Math.floor(25 * Math.sqrt(minutes))'
     ) {

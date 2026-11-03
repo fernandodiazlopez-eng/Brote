@@ -2,9 +2,9 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Brote — Coordinador principal de la aplicación:
+ * Upgrade — Coordinador principal de la aplicación:
  * - Sincroniza el calendario local real y reconcilia niveles/inactividad cada medianoche.
- * - Calcula en tiempo real XP, nivel, crecimiento del árbol y marchitamiento (máx. -15 niveles).
+ * - Calcula en tiempo real XP, nivel actual y memoria muscular (máx. -15 niveles).
  * - Mantiene y persiste la sesión activa de entrenamiento, el cronómetro y el temporizador al cambiar de app.
  * - Gestiona Wake Lock de pantalla, alertas sonoras compatibles con música y desbloqueo de trofeos.
  */
@@ -21,11 +21,17 @@ import {
   User,
 } from 'lucide-react';
 import { registerSW } from 'virtual:pwa-register';
+import {
+  BugGlobalMood,
+  BugSubwayMarquee,
+  BugUnlockBanner,
+} from './components/BugCompanion';
 import { FirstLaunchLanguageModal } from './components/FirstLaunchLanguageModal';
 import { ProfileView } from './components/ProfileView';
 import { StatsView } from './components/StatsView';
 import { TrainingView } from './components/TrainingView';
 import { TrophyUnlockBanner } from './components/TrophyUnlockBanner';
+import { BugDialogueCategory, pickBugPhrase } from './data/bugCompanionData';
 import { findNewlyUnlockedTrophies } from './data/trophiesCatalog';
 import { I18nContext, I18nContextValue } from './i18n/I18nContext';
 import {
@@ -40,8 +46,10 @@ import {
   AppLanguage,
   AppPersistentState,
   AppTab,
+  BugUnlockMilestone,
   CompletedWorkout,
   DailyActivityRecord,
+  MuscleGroupId,
   Routine,
   RoutineCategory,
   ThemeMode,
@@ -50,6 +58,7 @@ import {
   XpFormulas,
 } from './types';
 import {
+  playBugUnlockSound,
   playTrophyUnlockSound,
   prepareCountdownAudio,
   resumeAlarmAudioIfNeeded,
@@ -64,23 +73,27 @@ import {
   loadAppStateFromStorage,
   loadWorkoutSessionFromStorage,
   MAX_STOPWATCH_MS,
+  normalizeHexColor,
   parseAppStateBackup,
   reconcileDaysUntilToday,
   serializeAppStateBackup,
   WORKOUT_SESSION_STORAGE_KEY,
 } from './utils/localStorageState';
 import {
-  calculateContinuousLevelFromXp,
   calculateDailyTotalXp,
   calculateLevelFromXp,
   calculateRoutineBaseXp,
-  calculateTreeWitherProgress,
   getMinXpForLevel,
   localizeXpFormulasIfDefault,
   MAX_LEVEL,
   MAX_TOTAL_XP,
+  previewNextWorkoutMarginalXp,
   recalculateDailyWorkoutsMarginalXp,
 } from './utils/progressionRules';
+import {
+  categorySupportsMuscles,
+  extractMuscleGroupsFromExercises,
+} from './utils/muscleRecovery';
 
 const EMPTY_CUSTOM_MAP: Partial<Record<UiTextKey, string>> = {};
 
@@ -93,6 +106,8 @@ function formatCompactClock(totalSeconds: number): string {
 export default function App() {
   const [todayIso, setTodayIso] = useState<string>(() => getTodayDateIso());
   const [appState, setAppState] = useState<AppPersistentState>(loadAppStateFromStorage);
+  const latestAppStateRef = useRef<AppPersistentState>(appState);
+  latestAppStateRef.current = appState;
   const [selectedDateIso, setSelectedDateIso] = useState<string>(() => getTodayDateIso());
 
   // Hidratar la sesión activa una única vez al arrancar
@@ -104,7 +119,17 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<AppTab>(initialSession.activeTab);
   const [trophyQueue, setTrophyQueue] = useState<Trophy[]>([]);
+  const [bugMilestoneQueue, setBugMilestoneQueue] = useState<BugUnlockMilestone[]>([]);
   const currentTrophyBanner = trophyQueue[0] || null;
+  const currentBugBanner = !currentTrophyBanner ? bugMilestoneQueue[0] || null : null;
+
+  // Estado reactivo de Bug (mascota 8-bits) y su carrusel luminoso de metro
+  const [bugMood, setBugMood] = useState<BugGlobalMood>('none');
+  const [bugMarquee, setBugMarquee] = useState<{ id: number; text: string } | null>(null);
+  const bugMoodTimersRef = useRef<number[]>([]);
+  const lastBugPhraseRef = useRef<string | null>(null);
+  const nextBugMsgIdRef = useRef<number>(0);
+  const didTriggerOpenGreetingRef = useRef<boolean>(false);
 
   // --- 1. Sincronización de fecha real al volver del segundo plano o pasar medianoche ---
   useEffect(() => {
@@ -146,9 +171,15 @@ export default function App() {
     };
   }, []);
 
-  // --- 2. Cálculo en vivo de XP, Nivel, Tamaño del Árbol y Marchitamiento ---
-  const todayRecord = getDailyRecord(appState.daysByIso, todayIso);
-  const todayEarnedXp = calculateDailyTotalXp(todayRecord, appState.xpFormulas);
+  // --- 2. Cálculo en vivo de XP y Nivel (memorizado para no recalcular en cada tick del reloj) ---
+  const todayRecord = useMemo(
+    () => getDailyRecord(appState.daysByIso, todayIso),
+    [appState.daysByIso, todayIso]
+  );
+  const todayEarnedXp = useMemo(
+    () => calculateDailyTotalXp(todayRecord, appState.xpFormulas),
+    [todayRecord, appState.xpFormulas]
+  );
   const totalXp = Math.min(MAX_TOTAL_XP, appState.settledTotalXp + todayEarnedXp);
   const currentLevel = calculateLevelFromXp(totalXp);
   const peakLevel = Math.max(appState.settledPeakLevel, currentLevel);
@@ -157,14 +188,59 @@ export default function App() {
   const nextLevelXp =
     currentLevel >= MAX_LEVEL ? MAX_TOTAL_XP : getMinXpForLevel(currentLevel + 1);
 
-  const continuousLevel = calculateContinuousLevelFromXp(totalXp);
-  const peakContinuousLevel = Math.min(
-    MAX_LEVEL,
-    Math.max(appState.settledPeakContinuousLevel, peakLevel, continuousLevel)
+  const isBugUnlocked =
+    Boolean(appState.bugUnlockedAtIso) || currentLevel >= 10 || peakLevel >= 10;
+  const isBugHockeyUnlocked =
+    Boolean(appState.bugHockeyUnlockedAtIso) || currentLevel >= 50 || peakLevel >= 50;
+  const hideBug = Boolean(appState.hideBug);
+  const showBug = isBugUnlocked && !hideBug;
+
+  const wasBugUnlockedOnMountRef = useRef<boolean | null>(null);
+  if (wasBugUnlockedOnMountRef.current === null) {
+    wasBugUnlockedOnMountRef.current = isBugUnlocked;
+  }
+
+  const clearBugMoodTimers = useCallback(() => {
+    bugMoodTimersRef.current.forEach((id) => window.clearTimeout(id));
+    bugMoodTimersRef.current = [];
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearBugMoodTimers();
+    };
+  }, [clearBugMoodTimers]);
+
+  const showBugMarqueePhrase = useCallback(
+    (category: BugDialogueCategory, lang: AppLanguage) => {
+      const customForLang = latestAppStateRef.current.customTexts[lang] as
+        | Partial<Record<UiTextKey, string>>
+        | undefined;
+      const resolvedTexts = resolveUiTexts(lang, customForLang);
+      const phrase = pickBugPhrase(category, resolvedTexts, lastBugPhraseRef.current);
+      lastBugPhraseRef.current = phrase;
+      nextBugMsgIdRef.current += 1;
+      setBugMarquee({ id: nextBugMsgIdRef.current, text: phrase });
+    },
+    []
   );
 
-  const treeGrowthLevel = peakContinuousLevel;
-  const treeWitherProgress = calculateTreeWitherProgress(continuousLevel, peakContinuousLevel);
+  const triggerBugQuickReaction = useCallback(
+    (lang: AppLanguage) => {
+      clearBugMoodTimers();
+      setBugMood('happy');
+      const calmId = window.setTimeout(() => {
+        setBugMood('none');
+      }, 2400);
+      bugMoodTimersRef.current.push(calmId);
+      showBugMarqueePhrase('reaction', lang);
+    },
+    [clearBugMoodTimers, showBugMarqueePhrase]
+  );
+
+  const handleCompleteBugMarquee = useCallback((completedId: number) => {
+    setBugMarquee((prev) => (prev && prev.id === completedId ? null : prev));
+  }, []);
 
   // --- 3. Pulso único de XP en Perfil (sin repeticiones al cambiar de pestaña) ---
   const lastDisplayedXpRef = useRef<number>(totalXp);
@@ -265,6 +341,93 @@ export default function App() {
     setTrophyQueue((prev) => prev.slice(1));
   }, []);
 
+  // --- 4B. Desbloqueos de Bug (Nivel 10: Mascota y Doble Tap · Nivel 50: Física Air Hockey) y saludo al abrir ---
+  useEffect(() => {
+    if (!appState.hasSelectedInitialLanguage) return;
+
+    const reachedLvl10 = currentLevel >= 10 || peakLevel >= 10;
+    const reachedLvl50 = currentLevel >= 50 || peakLevel >= 50;
+    const needLvl10 = reachedLvl10 && !appState.bugUnlockedAtIso;
+    const needLvl50 = reachedLvl50 && !appState.bugHockeyUnlockedAtIso;
+
+    if (!needLvl10 && !needLvl50) return;
+
+    setAppState((prev) => ({
+      ...prev,
+      ...(needLvl10 && !prev.bugUnlockedAtIso ? { bugUnlockedAtIso: todayIso } : {}),
+      ...(needLvl50 && !prev.bugHockeyUnlockedAtIso
+        ? { bugHockeyUnlockedAtIso: todayIso }
+        : {}),
+    }));
+
+    setBugMilestoneQueue((prev) => {
+      const next = [...prev];
+      if (needLvl10 && !next.includes('level10')) next.push('level10');
+      if (needLvl50 && !next.includes('level50')) next.push('level50');
+      return next;
+    });
+  }, [
+    appState.hasSelectedInitialLanguage,
+    appState.bugUnlockedAtIso,
+    appState.bugHockeyUnlockedAtIso,
+    currentLevel,
+    peakLevel,
+    todayIso,
+  ]);
+
+  useEffect(() => {
+    if (!currentBugBanner) return;
+    playBugUnlockSound(currentBugBanner === 'level50');
+
+    const timerId = window.setTimeout(() => {
+      setBugMilestoneQueue((prev) => prev.slice(1));
+    }, 6200);
+    return () => window.clearTimeout(timerId);
+  }, [currentBugBanner]);
+
+  const handleDismissBugBanner = useCallback(() => {
+    setBugMilestoneQueue((prev) => prev.slice(1));
+  }, []);
+
+  useEffect(() => {
+    if (!appState.hasSelectedInitialLanguage) return;
+    if (didTriggerOpenGreetingRef.current) return;
+    didTriggerOpenGreetingRef.current = true;
+
+    if (!wasBugUnlockedOnMountRef.current || appState.hideBug) return;
+
+    const isAfterMultiDayInactivity =
+      appState.settledInactiveDays >= 2 &&
+      todayRecord.completedWorkouts.length === 0 &&
+      todayRecord.steps === 0;
+
+    if (isAfterMultiDayInactivity) {
+      // B. Tras inactividad de varios días: pasa de ojos tristes a arcos felices al detectar al usuario
+      clearBugMoodTimers();
+      setBugMood('sad');
+      const happyTimer = window.setTimeout(() => {
+        setBugMood('happy');
+      }, 950);
+      const resetTimer = window.setTimeout(() => {
+        setBugMood('none');
+      }, 3800);
+      bugMoodTimersRef.current.push(happyTimer, resetTimer);
+      showBugMarqueePhrase('inactive', appState.language);
+    } else {
+      // A. Racha o constancia al abrir la app
+      showBugMarqueePhrase('streak', appState.language);
+    }
+  }, [
+    appState.hasSelectedInitialLanguage,
+    appState.hideBug,
+    appState.settledInactiveDays,
+    appState.language,
+    todayRecord.completedWorkouts.length,
+    todayRecord.steps,
+    clearBugMoodTimers,
+    showBugMarqueePhrase,
+  ]);
+
   // --- 5. Estado de Sesión de Entrenamiento Activa y Relojes ---
   const [sessionRoutineId, setSessionRoutineId] = useState<string | null>(
     initialSession.sessionRoutineId
@@ -278,6 +441,7 @@ export default function App() {
   const [checkedExercises, setCheckedExercises] = useState<Record<string, boolean>>(
     initialSession.checkedExercises
   );
+  const [repCounter, setRepCounter] = useState<number>(initialSession.repCounter);
 
   const [clockMode, setClockMode] = useState<WorkoutClockMode>(initialSession.clockMode);
   const [stopwatchAccumMs, setStopwatchAccumMs] = useState<number>(
@@ -308,8 +472,18 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    applyThemeToDocument(appState.themeMode, appState.accentPalette, appState.language);
-  }, [appState.themeMode, appState.accentPalette, appState.language]);
+    applyThemeToDocument(
+      appState.themeMode,
+      appState.accentPalette,
+      appState.language,
+      appState.customAccentHex
+    );
+  }, [
+    appState.themeMode,
+    appState.accentPalette,
+    appState.language,
+    appState.customAccentHex,
+  ]);
 
   const activeCustomForLang =
     (appState.customTexts[appState.language] as Partial<Record<UiTextKey, string>> | undefined) ||
@@ -331,9 +505,21 @@ export default function App() {
     restDone: uiTexts.alarm_notif_rest_done,
   };
 
-  const activeSessionRoutine = sessionRoutineId
-    ? appState.routines.find((r) => r.id === sessionRoutineId) || null
-    : null;
+  const activeSessionRoutine = useMemo(
+    () =>
+      sessionRoutineId ? appState.routines.find((r) => r.id === sessionRoutineId) || null : null,
+    [sessionRoutineId, appState.routines]
+  );
+
+  const activeSessionCheckedMuscles = useMemo<MuscleGroupId[]>(() => {
+    if (!activeSessionRoutine || !categorySupportsMuscles(activeSessionRoutine.category)) {
+      return [];
+    }
+    const completedExercises = activeSessionRoutine.exercises.filter((ex) =>
+      Boolean(checkedExercises[ex.id])
+    );
+    return extractMuscleGroupsFromExercises(completedExercises) ?? [];
+  }, [activeSessionRoutine, checkedExercises]);
 
   const didTriggerHydratedAlarmRef = useRef(false);
   useEffect(() => {
@@ -351,6 +537,7 @@ export default function App() {
     isSessionViewOpen,
     sessionOriginTab,
     checkedExercises,
+    repCounter,
     clockMode,
     stopwatchAccumMs,
     stopwatchStartMs,
@@ -358,9 +545,6 @@ export default function App() {
     countdownRemMs,
     countdownEndMs,
   };
-
-  const latestAppStateRef = useRef<AppPersistentState>(appState);
-  latestAppStateRef.current = appState;
 
   const latestSessionRef = useRef<ActiveWorkoutSessionState>(sessionSnapshot);
   latestSessionRef.current = sessionSnapshot;
@@ -394,6 +578,7 @@ export default function App() {
     isSessionViewOpen,
     sessionOriginTab,
     checkedExercises,
+    repCounter,
     clockMode,
     stopwatchAccumMs,
     stopwatchStartMs,
@@ -578,6 +763,23 @@ export default function App() {
   const displayedSeconds =
     clockMode === WorkoutClockMode.STOPWATCH ? liveStopwatchSec : liveCountdownSec;
 
+  const liveStopwatchMinutes = Math.floor(liveStopwatchSec / 60);
+  const sessionFullXp = useMemo(() => {
+    if (!activeSessionRoutine) return 0;
+    const effectiveDuration = Math.max(activeSessionRoutine.durationMin, liveStopwatchMinutes);
+    return previewNextWorkoutMarginalXp(
+      todayRecord.completedWorkouts,
+      activeSessionRoutine.category,
+      effectiveDuration,
+      appState.xpFormulas
+    );
+  }, [
+    activeSessionRoutine,
+    liveStopwatchMinutes,
+    todayRecord.completedWorkouts,
+    appState.xpFormulas,
+  ]);
+
   // --- 8. Acciones de Reloj, Sesión, Rutinas, Agenda y Ajustes ---
   const handleStopAlarm = useCallback(() => {
     stopTimerAlarm();
@@ -673,6 +875,7 @@ export default function App() {
       if (sessionRoutineId !== routineId) {
         setSessionRoutineId(routineId);
         setCheckedExercises({});
+        setRepCounter(0);
         setStopwatchStartMs(null);
         setStopwatchAccumMs(0);
       }
@@ -701,6 +904,7 @@ export default function App() {
   const hasSessionProgress =
     isAnyClockRunning ||
     stopwatchAccumMs > 0 ||
+    repCounter > 0 ||
     hasCheckedAnyExercise ||
     countdownRemMs < countdownTargetSec * 1000;
 
@@ -722,8 +926,32 @@ export default function App() {
     }));
   }, []);
 
+  const handleIncrementRepCounter = useCallback(() => {
+    setRepCounter((prev) => (prev >= 99 ? 0 : prev + 1));
+  }, []);
+
+  const handleResetRepCounter = useCallback(() => {
+    setRepCounter(0);
+  }, []);
+
+  const handleChangeRepCounter = useCallback((nextValue: number) => {
+    const normalized = ((Math.round(nextValue) % 100) + 100) % 100;
+    setRepCounter(normalized);
+  }, []);
+
   const handleCompleteWorkout = useCallback(() => {
     if (!activeSessionRoutine) return;
+
+    const totalExercises = activeSessionRoutine.exercises.length;
+    const completedExercises = activeSessionRoutine.exercises.filter((ex) =>
+      Boolean(checkedExercises[ex.id])
+    );
+    if (totalExercises > 0 && completedExercises.length === 0) {
+      return;
+    }
+    const completionRatio =
+      totalExercises > 0 ? completedExercises.length / totalExercises : 1;
+
     stopTimerAlarm();
     setIsAlarmRinging(false);
 
@@ -746,6 +974,12 @@ export default function App() {
         prev.lastProcessedDateIso < realToday ? reconcileDaysUntilToday(prev, realToday) : prev;
       const existingToday = getDailyRecord(reconciled.daysByIso, realToday);
 
+      const trainedMuscles = !categorySupportsMuscles(activeSessionRoutine.category)
+        ? undefined
+        : totalExercises > 0
+        ? extractMuscleGroupsFromExercises(completedExercises) ?? []
+        : activeSessionRoutine.muscleGroups ?? [];
+
       const newWorkoutLog: CompletedWorkout = {
         id: `done-${Date.now()}`,
         routineId: activeSessionRoutine.id,
@@ -754,6 +988,8 @@ export default function App() {
         durationMin: effectiveDurationMin,
         xpEarned: 0,
         timeLabel,
+        completionRatio,
+        ...(trainedMuscles !== undefined ? { muscleGroups: [...trainedMuscles] } : {}),
       };
 
       const updatedWorkouts = recalculateDailyWorkoutsMarginalXp(
@@ -782,15 +1018,41 @@ export default function App() {
     setCountdownEndMs(null);
     setCountdownRemMs(countdownTargetSec * 1000);
     setCheckedExercises({});
+    setRepCounter(0);
     setSessionRoutineId(null);
     setIsSessionViewOpen(false);
     setActiveTab(sessionOriginTab);
+
+    const snap = latestAppStateRef.current;
+    const snapToday = getDailyRecord(snap.daysByIso, realToday);
+    const estNextRoutineXp = Math.round(
+      previewNextWorkoutMarginalXp(
+        snapToday.completedWorkouts,
+        activeSessionRoutine.category,
+        effectiveDurationMin,
+        snap.xpFormulas
+      ) * completionRatio
+    );
+    const estNextTotalXp =
+      snap.settledTotalXp +
+      calculateDailyTotalXp(snapToday, snap.xpFormulas) +
+      estNextRoutineXp;
+    const willShowBug =
+      !snap.hideBug &&
+      (isBugUnlocked || estNextTotalXp >= getMinXpForLevel(10));
+
+    if (willShowBug) {
+      triggerBugQuickReaction(snap.language);
+    }
   }, [
     activeSessionRoutine,
+    checkedExercises,
     stopwatchAccumMs,
     stopwatchStartMs,
     countdownTargetSec,
     sessionOriginTab,
+    isBugUnlocked,
+    triggerBugQuickReaction,
   ]);
 
   const handleUpdateXpFormulas = useCallback((nextFormulas: XpFormulas) => {
@@ -893,6 +1155,7 @@ export default function App() {
         setStopwatchAccumMs(0);
         setCountdownEndMs(null);
         setCheckedExercises({});
+        setRepCounter(0);
         setSessionRoutineId(null);
         setIsSessionViewOpen(false);
       }
@@ -1040,6 +1303,9 @@ export default function App() {
                 prev.xpFormulas
               ),
               exercises: [],
+              ...(workoutLog.muscleGroups && workoutLog.muscleGroups.length > 0
+                ? { muscleGroups: [...workoutLog.muscleGroups] }
+                : {}),
             };
             nextRoutines = [recreatedRoutine, ...nextRoutines];
             targetRoutineId = recreatedId;
@@ -1154,11 +1420,22 @@ export default function App() {
   }, []);
 
   const handleChangeAccentPalette = useCallback((accentPalette: AccentPaletteId) => {
-    setAppState((prev) => ({ ...prev, accentPalette }));
+    setAppState((prev) => {
+      if (accentPalette === 'custom' && !normalizeHexColor(prev.customAccentHex)) {
+        return prev;
+      }
+      return { ...prev, accentPalette };
+    });
   }, []);
 
-  const handleChangeSeasonsEnabled = useCallback((seasonsEnabled: boolean) => {
-    setAppState((prev) => ({ ...prev, seasonsEnabled }));
+  const handleApplyCustomAccentHex = useCallback((rawHex: string) => {
+    const normalized = normalizeHexColor(rawHex);
+    if (!normalized) return;
+    setAppState((prev) => ({
+      ...prev,
+      accentPalette: 'custom',
+      customAccentHex: normalized,
+    }));
   }, []);
 
   const handleSelectInitialLanguage = useCallback((chosenLanguage: AppLanguage) => {
@@ -1194,7 +1471,7 @@ export default function App() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `brote-backup-${getTodayDateIso()}.json`;
+      anchor.download = `upgrade-backup-${getTodayDateIso()}.json`;
       document.body.appendChild(anchor);
       anchor.click();
       document.body.removeChild(anchor);
@@ -1216,9 +1493,14 @@ export default function App() {
     setCountdownEndMs(null);
     setCountdownRemMs(countdownTargetSec * 1000);
     setCheckedExercises({});
+    setRepCounter(0);
     setSessionRoutineId(null);
     setIsSessionViewOpen(false);
     setTrophyQueue([]);
+    setBugMilestoneQueue([]);
+    clearBugMoodTimers();
+    setBugMood('none');
+    setBugMarquee(null);
     setTodayIso(realToday);
     setSelectedDateIso(realToday);
 
@@ -1238,7 +1520,7 @@ export default function App() {
       // Ignorar límites de almacenamiento
     }
     return true;
-  }, [countdownTargetSec]);
+  }, [countdownTargetSec, clearBugMoodTimers]);
 
   const handleUpdateCustomText = useCallback((key: UiTextKey, value: string) => {
     setAppState((prev) => {
@@ -1322,24 +1604,58 @@ export default function App() {
     [uiTexts.nav_training, uiTexts.nav_profile, uiTexts.nav_stats]
   );
 
-  const handleUpdateDaySteps = useCallback((dateIso: string, nextSteps: number) => {
-    const realToday = getTodayDateIso();
-    if (dateIso !== realToday) return;
-    setAppState((prev) => {
-      const safeSteps = Math.max(0, Math.min(200_000, nextSteps));
-      const existing = getDailyRecord(prev.daysByIso, dateIso);
-      return {
+  const handleChangeHideBug = useCallback(
+    (nextHide: boolean) => {
+      if (nextHide) {
+        clearBugMoodTimers();
+        setBugMood('none');
+        setBugMarquee(null);
+      }
+      setAppState((prev) => ({
         ...prev,
-        daysByIso: {
-          ...prev.daysByIso,
-          [dateIso]: {
-            ...existing,
-            steps: safeSteps,
+        hideBug: nextHide,
+      }));
+    },
+    [clearBugMoodTimers]
+  );
+
+  const handleUpdateDaySteps = useCallback(
+    (dateIso: string, nextSteps: number) => {
+      const realToday = getTodayDateIso();
+      if (dateIso !== realToday) return;
+      const safeSteps = Math.max(0, Math.min(200_000, nextSteps));
+      const previousSteps = getDailyRecord(latestAppStateRef.current.daysByIso, dateIso).steps;
+
+      setAppState((prev) => {
+        const existing = getDailyRecord(prev.daysByIso, dateIso);
+        return {
+          ...prev,
+          daysByIso: {
+            ...prev.daysByIso,
+            [dateIso]: {
+              ...existing,
+              steps: safeSteps,
+            },
           },
-        },
-      };
-    });
-  }, []);
+        };
+      });
+
+      const snap = latestAppStateRef.current;
+      const existingToday = getDailyRecord(snap.daysByIso, dateIso);
+      const nextDayTotalXp = calculateDailyTotalXp(
+        { ...existingToday, steps: safeSteps },
+        snap.xpFormulas
+      );
+      const willShowBug =
+        !snap.hideBug &&
+        (isBugUnlocked || snap.settledTotalXp + nextDayTotalXp >= getMinXpForLevel(10));
+
+      if (safeSteps > previousSteps && willShowBug) {
+        triggerBugQuickReaction(snap.language);
+      }
+    },
+    [isBugUnlocked, triggerBugQuickReaction]
+  );
 
   const showFloatingSessionBar =
     (isAnyClockRunning || (activeSessionRoutine !== null && hasSessionProgress)) &&
@@ -1352,13 +1668,50 @@ export default function App() {
     ? formatCompactClock(liveCountdownSec)
     : formatCompactClock(liveStopwatchSec);
 
+  const handleOpenFloatingSession = useCallback(() => {
+    setIsSessionViewOpen(true);
+    setActiveTab(AppTab.TRAINING);
+  }, []);
+
+  const handleToggleFloatingClock = useCallback(() => {
+    const now = Date.now();
+    setNowTick(now);
+    if (isAnyClockRunning) {
+      if (isCountdownRunning && countdownEndMs !== null) {
+        setCountdownRemMs(Math.max(0, countdownEndMs - now));
+        setCountdownEndMs(null);
+      }
+      if (isStopwatchRunning && stopwatchStartMs !== null) {
+        setStopwatchAccumMs((prev) =>
+          Math.min(MAX_STOPWATCH_MS, prev + Math.max(0, now - stopwatchStartMs))
+        );
+        setStopwatchStartMs(null);
+      }
+    } else if (clockMode === WorkoutClockMode.COUNTDOWN) {
+      prepareCountdownAudio();
+      const baseMs = countdownRemMs > 0 ? countdownRemMs : countdownTargetSec * 1000;
+      setCountdownRemMs(baseMs);
+      setCountdownEndMs(now + baseMs);
+    } else {
+      setStopwatchStartMs(now);
+    }
+  }, [
+    isAnyClockRunning,
+    isCountdownRunning,
+    countdownEndMs,
+    isStopwatchRunning,
+    stopwatchStartMs,
+    clockMode,
+    countdownRemMs,
+    countdownTargetSec,
+  ]);
+
   return (
     <I18nContext.Provider value={i18nContextValue}>
-      <div className="min-h-screen bg-canvas text-fg flex flex-col safe-bottom-page">
+      <div className="min-h-screen text-fg flex flex-col safe-bottom-page">
         {/* Pregunta inicial única al abrir la app por primera vez: English or Spanish? */}
         <FirstLaunchLanguageModal
           isOpen={!appState.hasSelectedInitialLanguage}
-          themeMode={appState.themeMode}
           onSelectLanguage={handleSelectInitialLanguage}
         />
 
@@ -1371,18 +1724,40 @@ export default function App() {
           />
         )}
 
+        {/* Notificación superior de Desbloqueo de Bug (Nivel 10 y Nivel 50) */}
+        {currentBugBanner && !currentTrophyBanner && !isAlarmRinging && (
+          <BugUnlockBanner
+            key={currentBugBanner}
+            milestone={currentBugBanner}
+            onDismiss={handleDismissBugBanner}
+          />
+        )}
+
+        {/* Carrusel luminoso de metro de Bug (sin bocadillos; solo se activa en eventos específicos) */}
+        {showBug && bugMarquee && (
+          <BugSubwayMarquee
+            message={bugMarquee.text}
+            messageId={bugMarquee.id}
+            shiftedDown={Boolean(currentTrophyBanner || currentBugBanner || isAlarmRinging)}
+            onComplete={handleCompleteBugMarquee}
+          />
+        )}
+
         {/* Alerta superior de Temporizador Finalizado */}
         {isAlarmRinging && (
           <div
             role="alertdialog"
             aria-labelledby="alarm-banner-title"
-            className="fixed safe-top-banner left-4 right-4 max-w-md mx-auto z-50 modal-sheet rounded-xl p-4 space-y-3"
+            className="fixed safe-top-banner left-4 right-4 max-w-md mx-auto z-50 modal-sheet ndot-surface rounded-md p-4 space-y-3"
           >
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2.5 min-w-0">
                 <BellRing className="w-4 h-4 text-accent shrink-0" />
                 <div className="min-w-0">
-                  <p id="alarm-banner-title" className="text-sm font-bold text-fg truncate">
+                  <p
+                    id="alarm-banner-title"
+                    className="font-display text-sm font-bold uppercase tracking-wide text-fg truncate"
+                  >
                     {uiTexts.alarm_finished_title}
                   </p>
                   {activeSessionRoutine && (
@@ -1425,129 +1800,128 @@ export default function App() {
           </div>
         )}
 
-      <main className="flex-1 w-full max-w-5xl mx-auto px-4 sm:px-6 safe-top-main pb-8">
-        {activeTab === AppTab.TRAINING && (
-          <TrainingView
-            xpFormulas={appState.xpFormulas}
-            routines={appState.routines}
-            trashedRoutines={appState.trashedRoutines}
-            activeSessionRoutine={isSessionViewOpen ? activeSessionRoutine : null}
-            checkedExercises={checkedExercises}
-            onToggleExerciseCheck={handleToggleExerciseCheck}
-            clockMode={clockMode}
-            onChangeClockMode={setClockMode}
-            isClockRunning={isDisplayedClockRunning}
-            displayedSeconds={displayedSeconds}
-            countdownTargetSec={countdownTargetSec}
-            onToggleClockPlayPause={handleToggleClockPlayPause}
-            onResetClock={handleResetClock}
-            onSetCountdownTargetSec={handleSetCountdownTargetSec}
-            onStartRoutine={handleStartRoutineFromTraining}
-            onExitSession={handleExitSessionView}
-            onCompleteWorkout={handleCompleteWorkout}
-            onSaveRoutine={handleSaveRoutine}
-            onMoveRoutineToTrash={handleMoveRoutineToTrash}
-            onRestoreRoutine={handleRestoreRoutine}
-            onPermanentDeleteRoutine={handlePermanentDeleteRoutine}
-          />
-        )}
+        <main className="flex-1 w-full max-w-5xl mx-auto px-4 sm:px-6 safe-top-main pb-8">
+          {activeTab === AppTab.TRAINING && (
+            <TrainingView
+              xpFormulas={appState.xpFormulas}
+              routines={appState.routines}
+              trashedRoutines={appState.trashedRoutines}
+              activeSessionRoutine={isSessionViewOpen ? activeSessionRoutine : null}
+              sessionFullXp={sessionFullXp}
+              checkedExercises={checkedExercises}
+              onToggleExerciseCheck={handleToggleExerciseCheck}
+              repCounter={repCounter}
+              onIncrementRepCounter={handleIncrementRepCounter}
+              onResetRepCounter={handleResetRepCounter}
+              onChangeRepCounter={handleChangeRepCounter}
+              clockMode={clockMode}
+              onChangeClockMode={setClockMode}
+              isClockRunning={isDisplayedClockRunning}
+              displayedSeconds={displayedSeconds}
+              countdownTargetSec={countdownTargetSec}
+              onToggleClockPlayPause={handleToggleClockPlayPause}
+              onResetClock={handleResetClock}
+              onSetCountdownTargetSec={handleSetCountdownTargetSec}
+              onStartRoutine={handleStartRoutineFromTraining}
+              onExitSession={handleExitSessionView}
+              onCompleteWorkout={handleCompleteWorkout}
+              onSaveRoutine={handleSaveRoutine}
+              onMoveRoutineToTrash={handleMoveRoutineToTrash}
+              onRestoreRoutine={handleRestoreRoutine}
+              onPermanentDeleteRoutine={handlePermanentDeleteRoutine}
+              showBug={showBug}
+              bugMood={bugMood}
+              canPetBug={isBugUnlocked}
+              canLaunchBugHockey={isBugHockeyUnlocked}
+            />
+          )}
 
-        {activeTab === AppTab.PROFILE && (
-          <ProfileView
-            todayIso={todayIso}
-            level={currentLevel}
-            maxLevel={MAX_LEVEL}
-            totalXp={totalXp}
-            levelMinXp={levelMinXp}
-            nextLevelXp={nextLevelXp}
-            treeGrowthLevel={treeGrowthLevel}
-            treeWitherProgress={treeWitherProgress}
-            xpPulseToken={xpPulseToken}
-            lastXpGain={lastXpGain}
-            stepGoal={appState.stepGoal}
-            onUpdateStepGoal={handleUpdateStepGoal}
-            themeMode={appState.themeMode}
-            onChangeThemeMode={handleChangeThemeMode}
-            accentPalette={appState.accentPalette}
-            onChangeAccentPalette={handleChangeAccentPalette}
-            seasonsEnabled={appState.seasonsEnabled}
-            onChangeSeasonsEnabled={handleChangeSeasonsEnabled}
-            xpFormulas={appState.xpFormulas}
-            onUpdateXpFormulas={handleUpdateXpFormulas}
-            daysByIso={appState.daysByIso}
-            routines={appState.routines}
-            selectedDateIso={selectedDateIso}
-            onSelectDate={setSelectedDateIso}
-            dismissedRepeatWeeks={appState.dismissedRepeatWeeks}
-            onRepeatPreviousWeek={handleRepeatPreviousWeek}
-            onDismissRepeatWeek={handleDismissRepeatWeek}
-            onAssignRoutineToDate={handleAssignRoutineToDate}
-            onRemoveScheduledRoutine={handleRemoveScheduledRoutine}
-            onMoveScheduledRoutine={handleMoveScheduledRoutine}
-            onCopyCompletedWorkoutToDate={handleCopyCompletedWorkoutToDate}
-            onDeleteCompletedWorkoutToday={handleDeleteCompletedWorkoutToday}
-            onUpdateDaySteps={handleUpdateDaySteps}
-            onStartRoutineFromProfile={handleStartRoutineFromProfile}
-            onExportBackup={handleExportBackup}
-            onImportBackupJson={handleImportBackupJson}
-          />
-        )}
+          {activeTab === AppTab.PROFILE && (
+            <ProfileView
+              todayIso={todayIso}
+              level={currentLevel}
+              maxLevel={MAX_LEVEL}
+              totalXp={totalXp}
+              levelMinXp={levelMinXp}
+              nextLevelXp={nextLevelXp}
+              xpPulseToken={xpPulseToken}
+              lastXpGain={lastXpGain}
+              stepGoal={appState.stepGoal}
+              onUpdateStepGoal={handleUpdateStepGoal}
+              themeMode={appState.themeMode}
+              onChangeThemeMode={handleChangeThemeMode}
+              accentPalette={appState.accentPalette}
+              onChangeAccentPalette={handleChangeAccentPalette}
+              customAccentHex={appState.customAccentHex}
+              onApplyCustomAccentHex={handleApplyCustomAccentHex}
+              xpFormulas={appState.xpFormulas}
+              onUpdateXpFormulas={handleUpdateXpFormulas}
+              daysByIso={appState.daysByIso}
+              routines={appState.routines}
+              trashedRoutines={appState.trashedRoutines}
+              activeSessionMuscles={activeSessionCheckedMuscles}
+              selectedDateIso={selectedDateIso}
+              onSelectDate={setSelectedDateIso}
+              dismissedRepeatWeeks={appState.dismissedRepeatWeeks}
+              onRepeatPreviousWeek={handleRepeatPreviousWeek}
+              onDismissRepeatWeek={handleDismissRepeatWeek}
+              onAssignRoutineToDate={handleAssignRoutineToDate}
+              onRemoveScheduledRoutine={handleRemoveScheduledRoutine}
+              onMoveScheduledRoutine={handleMoveScheduledRoutine}
+              onCopyCompletedWorkoutToDate={handleCopyCompletedWorkoutToDate}
+              onDeleteCompletedWorkoutToday={handleDeleteCompletedWorkoutToday}
+              onUpdateDaySteps={handleUpdateDaySteps}
+              onStartRoutineFromProfile={handleStartRoutineFromProfile}
+              onExportBackup={handleExportBackup}
+              onImportBackupJson={handleImportBackupJson}
+              isBugUnlocked={isBugUnlocked}
+              hideBug={hideBug}
+              onChangeHideBug={handleChangeHideBug}
+              showBug={showBug}
+              bugMood={bugMood}
+              canPetBug={isBugUnlocked}
+              canLaunchBugHockey={isBugHockeyUnlocked}
+            />
+          )}
 
-        {activeTab === AppTab.STATS && (
-          <StatsView
-            todayIso={todayIso}
-            firstOpenDateIso={appState.firstOpenDateIso}
-            daysByIso={appState.daysByIso}
-            stepGoal={appState.stepGoal}
-            unlockedTrophies={appState.unlockedTrophies}
-          />
-        )}
-      </main>
+          {activeTab === AppTab.STATS && (
+            <StatsView
+              todayIso={todayIso}
+              firstOpenDateIso={appState.firstOpenDateIso}
+              daysByIso={appState.daysByIso}
+              routines={appState.routines}
+              trashedRoutines={appState.trashedRoutines}
+              xpFormulas={appState.xpFormulas}
+              totalXp={totalXp}
+              stepGoal={appState.stepGoal}
+              unlockedTrophies={appState.unlockedTrophies}
+              showBug={showBug}
+              bugMood={bugMood}
+              canPetBug={isBugUnlocked}
+              canLaunchBugHockey={isBugHockeyUnlocked}
+            />
+          )}
+        </main>
 
         {/* Barra flotante inferior cuando hay un entrenamiento o descanso corriendo en segundo plano */}
         {showFloatingSessionBar && (
-          <div className="fixed safe-bottom-floating left-4 right-4 max-w-md mx-auto z-30 sheet-panel px-4 py-2 flex items-center justify-between gap-3">
+          <div className="fixed safe-bottom-floating left-4 right-4 max-w-md mx-auto z-30 sheet-panel ndot-surface border-strong px-4 py-2 flex items-center justify-between gap-3">
             <button
               type="button"
-              onClick={() => {
-                setIsSessionViewOpen(true);
-                setActiveTab(AppTab.TRAINING);
-              }}
+              onClick={handleOpenFloatingSession}
               className="flex items-center gap-2.5 min-w-0 flex-1 text-left cursor-pointer"
             >
               <span className="font-mono text-sm font-bold text-accent tabular-nums shrink-0">
                 {floatingClockText}
               </span>
-              <span className="text-xs font-medium text-fg truncate">
+              <span className="font-display text-xs font-semibold uppercase tracking-wide text-fg truncate">
                 {activeSessionRoutine ? activeSessionRoutine.title : uiTexts.floating_in_progress}
               </span>
             </button>
 
             <button
               type="button"
-              onClick={() => {
-                const now = Date.now();
-                setNowTick(now);
-                if (isAnyClockRunning) {
-                  if (isCountdownRunning && countdownEndMs !== null) {
-                    setCountdownRemMs(Math.max(0, countdownEndMs - now));
-                    setCountdownEndMs(null);
-                  }
-                  if (isStopwatchRunning && stopwatchStartMs !== null) {
-                    setStopwatchAccumMs((prev) =>
-                      Math.min(MAX_STOPWATCH_MS, prev + Math.max(0, now - stopwatchStartMs))
-                    );
-                    setStopwatchStartMs(null);
-                  }
-                } else if (clockMode === WorkoutClockMode.COUNTDOWN) {
-                  prepareCountdownAudio();
-                  const baseMs = countdownRemMs > 0 ? countdownRemMs : countdownTargetSec * 1000;
-                  setCountdownRemMs(baseMs);
-                  setCountdownEndMs(now + baseMs);
-                } else {
-                  setStopwatchStartMs(now);
-                }
-              }}
+              onClick={handleToggleFloatingClock}
               aria-label={isAnyClockRunning ? uiTexts.session_pause_btn : uiTexts.common_start}
               className="btn-secondary min-h-[36px] min-w-[36px] flex items-center justify-center"
             >
@@ -1560,10 +1934,10 @@ export default function App() {
           </div>
         )}
 
-        {/* Barra de navegación inferior */}
+        {/* Barra de navegación inferior Nothing × Cyberpunk */}
         <nav
           aria-label={uiTexts.nav_aria_label}
-          className="fixed bottom-0 left-0 right-0 z-40 safe-bottom-nav bg-canvas/92 backdrop-blur-md border-t border-subtle"
+          className="fixed bottom-0 left-0 right-0 z-40 safe-bottom-nav bg-surface/94 backdrop-blur-md border-t border-strong"
         >
           <div className="max-w-xl mx-auto h-full grid grid-cols-3 items-stretch px-4">
             {bottomNavItems.map((tab) => {
@@ -1582,7 +1956,7 @@ export default function App() {
                   {isActive && (
                     <span
                       aria-hidden="true"
-                      className="absolute top-0 w-7 h-[2px] bg-accent"
+                      className="absolute top-0 w-9 h-[2.5px] bg-accent-fill"
                     />
                   )}
                   <Icon
@@ -1591,8 +1965,8 @@ export default function App() {
                     }`}
                   />
                   <span
-                    className={`text-[11px] tracking-tight mt-0.5 whitespace-nowrap ${
-                      isActive ? 'font-semibold' : 'font-medium'
+                    className={`font-display text-[11px] uppercase tracking-[0.06em] mt-0.5 whitespace-nowrap ${
+                      isActive ? 'font-bold text-fg' : 'font-medium'
                     }`}
                   >
                     {tab.label}

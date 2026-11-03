@@ -4,35 +4,27 @@
  */
 
 import React from 'react';
-import { AppLanguage, ThemeMode } from '../types';
-import { BroteLogo } from './BroteLogo';
+import { AppLanguage } from '../types';
 
 interface FirstLaunchLanguageModalProps {
   isOpen: boolean;
-  themeMode: ThemeMode;
   onSelectLanguage: (language: AppLanguage) => void;
 }
 
 export const FirstLaunchLanguageModal: React.FC<FirstLaunchLanguageModalProps> = ({
   isOpen,
-  themeMode,
   onSelectLanguage,
 }) => {
   if (!isOpen) return null;
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 backdrop-blur-md p-5"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-md p-5"
       role="dialog"
       aria-modal="true"
       aria-labelledby="first-launch-lang-heading"
     >
-      <div className="w-full max-w-sm modal-sheet rounded-2xl p-6 sm:p-7 text-center space-y-6">
-        <BroteLogo
-          themeMode={themeMode}
-          className="w-14 h-14 mx-auto shadow-md"
-        />
-
+      <div className="w-full max-w-sm modal-sheet ndot-surface rounded-md p-6 sm:p-7 text-center space-y-6">
         <h2
           id="first-launch-lang-heading"
           className="font-display text-xl sm:text-2xl font-bold text-fg tracking-tight"
@@ -44,7 +36,7 @@ export const FirstLaunchLanguageModal: React.FC<FirstLaunchLanguageModalProps> =
           <button
             type="button"
             onClick={() => onSelectLanguage('en')}
-            className="btn-primary min-h-[50px] px-4 py-2.5 text-sm font-semibold whitespace-nowrap"
+            className="btn-primary min-h-[50px] px-4 py-2.5 text-sm whitespace-nowrap"
           >
             English
           </button>
@@ -52,7 +44,7 @@ export const FirstLaunchLanguageModal: React.FC<FirstLaunchLanguageModalProps> =
           <button
             type="button"
             onClick={() => onSelectLanguage('es')}
-            className="btn-primary min-h-[50px] px-4 py-2.5 text-sm font-semibold whitespace-nowrap"
+            className="btn-primary min-h-[50px] px-4 py-2.5 text-sm whitespace-nowrap"
           >
             Español
           </button>

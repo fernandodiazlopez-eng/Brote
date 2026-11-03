@@ -1,145 +1,187 @@
+/**
+ * Insignia vectorial de precisión estilo Nothing OS × Cyberpunk para los 5 rangos de trofeos:
+ * - Ventana óptica OLED empotrada con retículas de esquina y matriz de puntos.
+ * - Brillo óptico progresivo por dificultad: Bronce (mate) -> Plata (brillo plata) ->
+ *   Oro (+brillo dorado) -> Platino (++brillo cian-platino) -> Platino Diamante (máximo brillo prismático).
+ */
+
 import React, { useId } from 'react';
 import { TROPHY_TIER_STYLES } from '../data/trophiesCatalog';
 import { TrophyTier } from '../types';
 
-interface SparkleSpec {
+interface LedNodeSpec {
   x: number;
   y: number;
-  scale: number;
+  size: number;
   color: string;
   animClass: string;
-  eightPoint?: boolean;
 }
 
-const EMBLEM_SPARKLES: Record<TrophyTier, SparkleSpec[]> = {
-  // Bronce: 1 destello sutil en el borde del cáliz
-  bronce: [
-    { x: 44, y: 17, scale: 0.55, color: '#fcd34d', animClass: 'animate-sparkle-1' },
-  ],
-  // Plata: 3 brillitos plateados nítidos
-  plata: [
-    { x: 47, y: 14, scale: 0.72, color: '#ffffff', animClass: 'animate-sparkle-1' },
-    { x: 15, y: 22, scale: 0.58, color: '#e2e8f0', animClass: 'animate-sparkle-2' },
-    { x: 49, y: 39, scale: 0.5, color: '#f8fafc', animClass: 'animate-sparkle-3' },
-  ],
-  // Oro: 6 brillitos dorados intensos
-  oro: [
-    { x: 49, y: 11, scale: 0.9, color: '#fef9c3', animClass: 'animate-sparkle-1', eightPoint: true },
-    { x: 13, y: 15, scale: 0.72, color: '#fde047', animClass: 'animate-sparkle-2' },
-    { x: 53, y: 31, scale: 0.68, color: '#fef08a', animClass: 'animate-sparkle-3' },
-    { x: 11, y: 36, scale: 0.6, color: '#facc15', animClass: 'animate-sparkle-4' },
-    { x: 32, y: 7, scale: 0.65, color: '#ffffff', animClass: 'animate-sparkle-5' },
-    { x: 46, y: 50, scale: 0.54, color: '#fde047', animClass: 'animate-sparkle-6' },
-  ],
-  // Platino: 10 brillitos celestiales blanco-cian
-  platino: [
-    { x: 32, y: 6, scale: 0.96, color: '#ffffff', animClass: 'animate-sparkle-1', eightPoint: true },
-    { x: 52, y: 11, scale: 0.85, color: '#bae6fd', animClass: 'animate-sparkle-2', eightPoint: true },
-    { x: 12, y: 12, scale: 0.8, color: '#e0f2fe', animClass: 'animate-sparkle-3' },
-    { x: 56, y: 26, scale: 0.72, color: '#38bdf8', animClass: 'animate-sparkle-4' },
-    { x: 8, y: 27, scale: 0.7, color: '#7dd3fc', animClass: 'animate-sparkle-5' },
-    { x: 51, y: 44, scale: 0.65, color: '#ffffff', animClass: 'animate-sparkle-6' },
-    { x: 13, y: 45, scale: 0.62, color: '#bae6fd', animClass: 'animate-sparkle-1' },
-    { x: 42, y: 16, scale: 0.55, color: '#ffffff', animClass: 'animate-sparkle-3' },
-    { x: 21, y: 17, scale: 0.52, color: '#7dd3fc', animClass: 'animate-sparkle-4' },
-    { x: 32, y: 56, scale: 0.55, color: '#e0f2fe', animClass: 'animate-sparkle-2' },
-  ],
-  // Platino Diamante: 15 brillitos prismáticos deslumbrantes
-  diamante: [
-    { x: 32, y: 4, scale: 1.05, color: '#ffffff', animClass: 'animate-sparkle-1', eightPoint: true },
-    { x: 53, y: 9, scale: 0.95, color: '#f5d0fe', animClass: 'animate-sparkle-2', eightPoint: true },
-    { x: 11, y: 9, scale: 0.92, color: '#bae6fd', animClass: 'animate-sparkle-3', eightPoint: true },
-    { x: 58, y: 22, scale: 0.82, color: '#fde047', animClass: 'animate-sparkle-4' },
-    { x: 6, y: 22, scale: 0.82, color: '#f0abfc', animClass: 'animate-sparkle-5' },
-    { x: 56, y: 38, scale: 0.78, color: '#7dd3fc', animClass: 'animate-sparkle-6', eightPoint: true },
-    { x: 8, y: 38, scale: 0.76, color: '#fef08a', animClass: 'animate-sparkle-1' },
-    { x: 49, y: 53, scale: 0.7, color: '#ffffff', animClass: 'animate-sparkle-2' },
-    { x: 15, y: 53, scale: 0.7, color: '#e879f9', animClass: 'animate-sparkle-3' },
-    { x: 43, y: 14, scale: 0.62, color: '#ffffff', animClass: 'animate-sparkle-4' },
-    { x: 21, y: 14, scale: 0.62, color: '#fde047', animClass: 'animate-sparkle-5' },
-    { x: 47, y: 29, scale: 0.58, color: '#38bdf8', animClass: 'animate-sparkle-6' },
-    { x: 17, y: 29, scale: 0.58, color: '#f5d0fe', animClass: 'animate-sparkle-2' },
-    { x: 38, y: 58, scale: 0.55, color: '#bae6fd', animClass: 'animate-sparkle-4' },
-    { x: 26, y: 58, scale: 0.55, color: '#fef08a', animClass: 'animate-sparkle-5' },
-  ],
+const TIER_PALETTE_HEX: Record<
+  TrophyTier,
+  {
+    reticle: string;
+    ring: string;
+    litFacetStart: string;
+    litFacetEnd: string;
+    shadowFacetStart: string;
+    shadowFacetEnd: string;
+    edgeStroke: string;
+    coreFill: string;
+    coreAccent: string;
+    ledHex: string;
+    auraHex: string;
+    auraOpacity: number;
+    cupGlowClass: string;
+  }
+> = {
+  bronce: {
+    reticle: '#b3623b',
+    ring: '#9c522b',
+    litFacetStart: '#e29e78',
+    litFacetEnd: '#b3623b',
+    shadowFacetStart: '#9c522b',
+    shadowFacetEnd: '#5e2c14',
+    edgeStroke: '#8f4925',
+    coreFill: '#24120a',
+    coreAccent: '#e29e78',
+    ledHex: '#d4875e',
+    auraHex: '#b3623b',
+    auraOpacity: 0,
+    cupGlowClass: '',
+  },
+  plata: {
+    reticle: '#64748b',
+    ring: '#94a3b8',
+    litFacetStart: '#f8fafc',
+    litFacetEnd: '#cbd5e1',
+    shadowFacetStart: '#94a3b8',
+    shadowFacetEnd: '#475569',
+    edgeStroke: '#64748b',
+    coreFill: '#1e293b',
+    coreAccent: '#f1f5f9',
+    ledHex: '#cbd5e1',
+    auraHex: '#cbd5e1',
+    auraOpacity: 0.22,
+    cupGlowClass: 'trophy-cup-glow-plata',
+  },
+  oro: {
+    reticle: '#d99000',
+    ring: '#eab308',
+    litFacetStart: '#fef08a',
+    litFacetEnd: '#eab308',
+    shadowFacetStart: '#ca8a04',
+    shadowFacetEnd: '#784700',
+    edgeStroke: '#b47800',
+    coreFill: '#291a00',
+    coreAccent: '#fef08a',
+    ledHex: '#f5c438',
+    auraHex: '#f5c438',
+    auraOpacity: 0.34,
+    cupGlowClass: 'trophy-cup-glow-oro',
+  },
+  platino: {
+    reticle: '#0284c7',
+    ring: '#38bdf8',
+    litFacetStart: '#f0f9ff',
+    litFacetEnd: '#7dd3fc',
+    shadowFacetStart: '#38bdf8',
+    shadowFacetEnd: '#0369a1',
+    edgeStroke: '#0284c7',
+    coreFill: '#082f49',
+    coreAccent: '#bae6fd',
+    ledHex: '#38bdf8',
+    auraHex: '#38bdf8',
+    auraOpacity: 0.44,
+    cupGlowClass: 'trophy-cup-glow-platino',
+  },
+  diamante: {
+    reticle: '#6366f1',
+    ring: '#38bdf8',
+    litFacetStart: '#ffffff',
+    litFacetEnd: '#bae6fd',
+    shadowFacetStart: '#818cf8',
+    shadowFacetEnd: '#3730a3',
+    edgeStroke: '#4f46e5',
+    coreFill: '#1e1b4b',
+    coreAccent: '#a5b4fc',
+    ledHex: '#818cf8',
+    auraHex: '#818cf8',
+    auraOpacity: 0.56,
+    cupGlowClass: 'trophy-cup-glow-diamante',
+  },
 };
 
-const CARD_SPARKLES: Record<TrophyTier, SparkleSpec[]> = {
+const EMBLEM_LED_NODES: Record<TrophyTier, LedNodeSpec[]> = {
+  // Bronce: 0 destellos (cobre satinado industrial)
   bronce: [],
+  // Plata: 2 destellos plateados suaves
   plata: [
-    { x: 356, y: 18, scale: 0.62, color: '#e2e8f0', animClass: 'animate-sparkle-2' },
-    { x: 382, y: 42, scale: 0.48, color: '#f8fafc', animClass: 'animate-sparkle-4' },
+    { x: 48, y: 12, size: 1.8, color: '#94a3b8', animClass: 'animate-sparkle-1' },
+    { x: 15, y: 15, size: 1.6, color: '#cbd5e1', animClass: 'animate-sparkle-3' },
   ],
+  // Oro: 4 destellos dorados limpios
   oro: [
-    { x: 374, y: 16, scale: 0.82, color: '#fef08a', animClass: 'animate-sparkle-1', eightPoint: true },
-    { x: 342, y: 26, scale: 0.58, color: '#facc15', animClass: 'animate-sparkle-3' },
-    { x: 386, y: 54, scale: 0.65, color: '#fde047', animClass: 'animate-sparkle-5' },
-    { x: 310, y: 14, scale: 0.5, color: '#ffffff', animClass: 'animate-sparkle-2' },
-    { x: 360, y: 74, scale: 0.52, color: '#fde047', animClass: 'animate-sparkle-6' },
+    { x: 49, y: 10, size: 2.1, color: '#eab308', animClass: 'animate-sparkle-1' },
+    { x: 13, y: 12, size: 1.9, color: '#f5c438', animClass: 'animate-sparkle-2' },
+    { x: 52, y: 35, size: 1.7, color: '#ca8a04', animClass: 'animate-sparkle-4' },
+    { x: 12, y: 36, size: 1.7, color: '#eab308', animClass: 'animate-sparkle-5' },
   ],
+  // Platino: 6 destellos platino-hielo
   platino: [
-    { x: 378, y: 15, scale: 0.92, color: '#ffffff', animClass: 'animate-sparkle-1', eightPoint: true },
-    { x: 344, y: 20, scale: 0.7, color: '#7dd3fc', animClass: 'animate-sparkle-2' },
-    { x: 388, y: 48, scale: 0.76, color: '#bae6fd', animClass: 'animate-sparkle-3', eightPoint: true },
-    { x: 315, y: 14, scale: 0.58, color: '#38bdf8', animClass: 'animate-sparkle-4' },
-    { x: 362, y: 72, scale: 0.65, color: '#e0f2fe', animClass: 'animate-sparkle-5' },
-    { x: 278, y: 22, scale: 0.52, color: '#ffffff', animClass: 'animate-sparkle-6' },
-    { x: 332, y: 66, scale: 0.5, color: '#7dd3fc', animClass: 'animate-sparkle-1' },
-    { x: 235, y: 15, scale: 0.48, color: '#bae6fd', animClass: 'animate-sparkle-3' },
-    { x: 384, y: 80, scale: 0.56, color: '#ffffff', animClass: 'animate-sparkle-4' },
+    { x: 50, y: 9, size: 2.2, color: '#38bdf8', animClass: 'animate-sparkle-1' },
+    { x: 12, y: 10, size: 2.1, color: '#0284c7', animClass: 'animate-sparkle-2' },
+    { x: 54, y: 24, size: 1.9, color: '#7dd3fc', animClass: 'animate-sparkle-3' },
+    { x: 9, y: 25, size: 1.9, color: '#38bdf8', animClass: 'animate-sparkle-4' },
+    { x: 52, y: 38, size: 1.8, color: '#0284c7', animClass: 'animate-sparkle-5' },
+    { x: 11, y: 39, size: 1.8, color: '#7dd3fc', animClass: 'animate-sparkle-6' },
   ],
+  // Platino Diamante: 8 destellos cristal-zafiro
   diamante: [
-    { x: 380, y: 14, scale: 1.02, color: '#ffffff', animClass: 'animate-sparkle-1', eightPoint: true },
-    { x: 346, y: 18, scale: 0.82, color: '#f5d0fe', animClass: 'animate-sparkle-2', eightPoint: true },
-    { x: 388, y: 46, scale: 0.88, color: '#7dd3fc', animClass: 'animate-sparkle-3', eightPoint: true },
-    { x: 314, y: 14, scale: 0.72, color: '#fde047', animClass: 'animate-sparkle-4' },
-    { x: 364, y: 74, scale: 0.78, color: '#f0abfc', animClass: 'animate-sparkle-5', eightPoint: true },
-    { x: 276, y: 20, scale: 0.65, color: '#ffffff', animClass: 'animate-sparkle-6' },
-    { x: 330, y: 68, scale: 0.62, color: '#bae6fd', animClass: 'animate-sparkle-1' },
-    { x: 238, y: 14, scale: 0.6, color: '#fef08a', animClass: 'animate-sparkle-2' },
-    { x: 196, y: 22, scale: 0.55, color: '#e879f9', animClass: 'animate-sparkle-3' },
-    { x: 294, y: 76, scale: 0.58, color: '#fde047', animClass: 'animate-sparkle-4' },
-    { x: 158, y: 15, scale: 0.52, color: '#7dd3fc', animClass: 'animate-sparkle-5' },
-    { x: 122, y: 74, scale: 0.54, color: '#f5d0fe', animClass: 'animate-sparkle-6' },
-    { x: 386, y: 82, scale: 0.66, color: '#fde047', animClass: 'animate-sparkle-2' },
-    { x: 252, y: 72, scale: 0.5, color: '#ffffff', animClass: 'animate-sparkle-1' },
+    { x: 51, y: 8, size: 2.4, color: '#6366f1', animClass: 'animate-sparkle-1' },
+    { x: 11, y: 8, size: 2.3, color: '#38bdf8', animClass: 'animate-sparkle-2' },
+    { x: 32, y: 2.5, size: 2.1, color: '#818cf8', animClass: 'animate-sparkle-5' },
+    { x: 56, y: 23, size: 2.1, color: '#6366f1', animClass: 'animate-sparkle-3' },
+    { x: 7, y: 23, size: 2.1, color: '#38bdf8', animClass: 'animate-sparkle-4' },
+    { x: 53, y: 39, size: 1.9, color: '#38bdf8', animClass: 'animate-sparkle-6' },
+    { x: 10, y: 39, size: 1.9, color: '#818cf8', animClass: 'animate-sparkle-1' },
+    { x: 45, y: 14, size: 1.7, color: '#a5b4fc', animClass: 'animate-sparkle-2' },
   ],
 };
 
-const SparkleStar: React.FC<{ spec: SparkleSpec }> = ({ spec }) => (
-  <g transform={`translate(${spec.x} ${spec.y}) scale(${spec.scale})`}>
-    <g className={`sparkle-origin ${spec.animClass}`}>
-      <path
-        d="M0 -6 L1.5 -1.5 L6 0 L1.5 1.5 L0 6 L-1.5 1.5 L-6 0 L-1.5 -1.5 Z"
-        fill={spec.color}
-      />
-      {spec.eightPoint && (
-        <path
-          d="M-3.6 -3.6 L-0.7 -1.3 L3.6 -3.6 L1.3 -0.7 L3.6 3.6 L0.7 1.3 L-3.6 3.6 L-1.3 0.7 Z"
-          fill="#ffffff"
-          opacity={0.85}
-        />
-      )}
-      <circle cx={0} cy={0} r={1.15} fill="#ffffff" />
-    </g>
-  </g>
-);
+const PEDESTAL_LED_X = [20.5, 25.5, 30.5, 35.5, 40.5];
+const DIAMOND_LED_HEX = ['#38bdf8', '#818cf8', '#e0e7ff', '#818cf8', '#38bdf8'];
 
-export const TrophyCardSparkles: React.FC<{ tier: TrophyTier }> = ({ tier }) => {
-  const specs = CARD_SPARKLES[tier];
-  if (specs.length === 0) return null;
+export const TrophyTierRankLeds: React.FC<{ tier: TrophyTier }> = ({ tier }) => {
+  const { qualityRank, ledActiveClass } = TROPHY_TIER_STYLES[tier];
 
   return (
-    <svg
-      viewBox="0 0 400 96"
-      preserveAspectRatio="none"
-      aria-hidden="true"
-      className="pointer-events-none absolute inset-0 w-full h-full overflow-hidden"
-    >
-      {specs.map((sp, idx) => (
-        <SparkleStar key={idx} spec={sp} />
+    <span aria-hidden="true" className="inline-flex items-center gap-[2px] shrink-0">
+      {[1, 2, 3, 4, 5].map((slot) => (
+        <span
+          key={slot}
+          className={`w-[3px] h-[7px] rounded-[0.5px] ${
+            slot <= qualityRank ? ledActiveClass : 'bg-elevated'
+          }`}
+        />
       ))}
-    </svg>
+    </span>
+  );
+};
+
+export const TrophyCardSheen: React.FC<{ tier: TrophyTier }> = ({ tier }) => {
+  const { sheenTrackAnimClass, sheenBarClass, sheenWidthClass } = TROPHY_TIER_STYLES[tier];
+  if (!sheenTrackAnimClass || !sheenBarClass) return null;
+
+  return (
+    <div
+      aria-hidden="true"
+      className={`pointer-events-none absolute inset-0 ${sheenTrackAnimClass}`}
+    >
+      <div
+        className={`absolute inset-y-0 right-full trophy-sheen-beam ${sheenWidthClass} ${sheenBarClass}`}
+      />
+    </div>
   );
 };
 
@@ -147,25 +189,51 @@ interface TrophyEmblemProps {
   tier: TrophyTier;
   size?: 'md' | 'lg';
   animatePop?: boolean;
+  locked?: boolean;
 }
 
 export const TrophyEmblem: React.FC<TrophyEmblemProps> = ({
   tier,
   size = 'md',
   animatePop = false,
+  locked = false,
 }) => {
   const rawUid = useId().replace(/:/g, '');
   const meta = TROPHY_TIER_STYLES[tier];
-  const sparkles = EMBLEM_SPARKLES[tier];
+  const palette = TIER_PALETTE_HEX[tier];
+  const ledNodes = EMBLEM_LED_NODES[tier];
 
-  const boxSizeClass = size === 'lg' ? 'w-16 h-16 rounded-2xl' : 'w-14 h-14 rounded-2xl';
+  const boxSizeClass = size === 'lg' ? 'w-16 h-16' : 'w-14 h-14';
   const svgSizeClass = size === 'lg' ? 'w-14 h-14' : 'w-12 h-12';
 
-  const metalGradId = `metal-${tier}-${rawUid}`;
-  const darkMetalGradId = `dark-metal-${tier}-${rawUid}`;
-  const baseGradId = `base-${tier}-${rawUid}`;
-  const gemGradId = `gem-${tier}-${rawUid}`;
+  if (locked) {
+    return (
+      <div
+        className={`relative ${boxSizeClass} trophy-oled-window border border-subtle flex items-center justify-center shrink-0 overflow-hidden`}
+      >
+        <svg viewBox="0 0 64 64" className={svgSizeClass} aria-hidden="true">
+          <g fill="none" stroke="var(--trophy-locked-stroke)" strokeWidth={1}>
+            <path d="M5 10 V5 H10 M54 5 H59 V10 M5 54 V59 H10 M54 59 H59 V54" opacity={0.55} />
+            <polygon points="18,15 46,15 44.5,18 19.5,18" strokeDasharray="2 2" />
+            <polygon points="19.5,18 44.5,18 42,28 36.5,35 27.5,35 22,28" />
+            <polyline points="19.5,20 14,20 12.5,22 12.5,27 15.5,30 21.5,30" opacity={0.7} />
+            <polyline points="44.5,20 50,20 51.5,22 51.5,27 48.5,30 42.5,30" opacity={0.7} />
+            <line x1={32} y1={18} x2={32} y2={35} opacity={0.45} />
+            <polygon points="29.5,35 34.5,35 35.5,44.5 28.5,44.5" />
+            <rect x={16} y={47} width={32} height={8.5} rx={1} />
+          </g>
+          {PEDESTAL_LED_X.map((xPos, idx) => (
+            <rect key={idx} x={xPos} y={50} width={3} height={2.5} fill="var(--trophy-locked-led)" />
+          ))}
+        </svg>
+      </div>
+    );
+  }
+
+  const litGradId = `lit-${tier}-${rawUid}`;
+  const shadowGradId = `shd-${tier}-${rawUid}`;
   const auraGradId = `aura-${tier}-${rawUid}`;
+  const prismGradId = `prism-${tier}-${rawUid}`;
 
   const isSilverPlus = tier !== 'bronce';
   const isGoldPlus = tier === 'oro' || tier === 'platino' || tier === 'diamante';
@@ -174,366 +242,359 @@ export const TrophyEmblem: React.FC<TrophyEmblemProps> = ({
 
   return (
     <div
-      className={`relative ${boxSizeClass} ${meta.emblemFrameClass} flex items-center justify-center shrink-0 overflow-hidden ${
+      className={`relative ${boxSizeClass} trophy-oled-window ${meta.emblemFrameClass} flex items-center justify-center shrink-0 overflow-hidden ${
         animatePop ? 'animate-trophy-emblem' : ''
       }`}
     >
+      {/* Barrido especular interno en el cristal OLED (reposa en la derecha antes de reiniciar) */}
+      {meta.emblemSheenAnimClass && (
+        <div
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-0 z-20 ${meta.emblemSheenAnimClass}`}
+        >
+          <div
+            className={`absolute inset-y-0 right-full trophy-sheen-beam ${meta.emblemSheenBeamClass}`}
+          />
+        </div>
+      )}
+
       <svg
         viewBox="0 0 64 64"
-        className={`${svgSizeClass} overflow-visible`}
+        className={`relative z-10 ${svgSizeClass} overflow-visible`}
         aria-hidden="true"
       >
         <defs>
-          {/* Gradientes metálicos principales por categoría */}
-          {tier === 'bronce' && (
-            <>
-              <linearGradient id={metalGradId} x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#fbbf24" />
-                <stop offset="32%" stopColor="#d97706" />
-                <stop offset="72%" stopColor="#92400e" />
-                <stop offset="100%" stopColor="#451a03" />
-              </linearGradient>
-              <linearGradient id={darkMetalGradId} x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="#b45309" />
-                <stop offset="100%" stopColor="#451a03" />
-              </linearGradient>
-              <linearGradient id={baseGradId} x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#292524" />
-                <stop offset="50%" stopColor="#57534e" />
-                <stop offset="100%" stopColor="#1c1917" />
-              </linearGradient>
-            </>
+          <linearGradient id={litGradId} x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor={palette.litFacetStart} />
+            <stop offset="100%" stopColor={palette.litFacetEnd} />
+          </linearGradient>
+
+          <linearGradient id={shadowGradId} x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor={palette.shadowFacetStart} />
+            <stop offset="100%" stopColor={palette.shadowFacetEnd} />
+          </linearGradient>
+
+          {isSilverPlus && (
+            <radialGradient id={auraGradId} cx="50%" cy="40%" r="50%">
+              <stop offset="0%" stopColor={palette.auraHex} stopOpacity={palette.auraOpacity} />
+              {isPlatinumPlus && !isDiamond && (
+                <stop offset="48%" stopColor="#38bdf8" stopOpacity={0.2} />
+              )}
+              {isDiamond && (
+                <>
+                  <stop offset="38%" stopColor="#6366f1" stopOpacity={0.28} />
+                  <stop offset="72%" stopColor="#38bdf8" stopOpacity={0.18} />
+                </>
+              )}
+              <stop offset="100%" stopColor={palette.auraHex} stopOpacity="0" />
+            </radialGradient>
           )}
 
-          {tier === 'plata' && (
-            <>
-              <linearGradient id={metalGradId} x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#ffffff" />
-                <stop offset="35%" stopColor="#e2e8f0" />
-                <stop offset="70%" stopColor="#94a3b8" />
-                <stop offset="100%" stopColor="#475569" />
-              </linearGradient>
-              <linearGradient id={darkMetalGradId} x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="#cbd5e1" />
-                <stop offset="100%" stopColor="#334155" />
-              </linearGradient>
-              <linearGradient id={baseGradId} x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#1e293b" />
-                <stop offset="50%" stopColor="#475569" />
-                <stop offset="100%" stopColor="#0f172a" />
-              </linearGradient>
-              <radialGradient id={auraGradId} cx="50%" cy="42%" r="48%">
-                <stop offset="0%" stopColor="#e2e8f0" stopOpacity="0.28" />
-                <stop offset="100%" stopColor="#e2e8f0" stopOpacity="0" />
-              </radialGradient>
-            </>
-          )}
-
-          {tier === 'oro' && (
-            <>
-              <linearGradient id={metalGradId} x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#fef9c3" />
-                <stop offset="28%" stopColor="#fde047" />
-                <stop offset="62%" stopColor="#eab308" />
-                <stop offset="100%" stopColor="#854d0e" />
-              </linearGradient>
-              <linearGradient id={darkMetalGradId} x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="#facc15" />
-                <stop offset="100%" stopColor="#713f12" />
-              </linearGradient>
-              <linearGradient id={baseGradId} x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#1c1917" />
-                <stop offset="50%" stopColor="#44403c" />
-                <stop offset="100%" stopColor="#0c0a09" />
-              </linearGradient>
-              <linearGradient id={gemGradId} x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#fda4af" />
-                <stop offset="45%" stopColor="#e11d48" />
-                <stop offset="100%" stopColor="#881337" />
-              </linearGradient>
-              <radialGradient id={auraGradId} cx="50%" cy="40%" r="50%">
-                <stop offset="0%" stopColor="#fde047" stopOpacity="0.45" />
-                <stop offset="65%" stopColor="#eab308" stopOpacity="0.14" />
-                <stop offset="100%" stopColor="#eab308" stopOpacity="0" />
-              </radialGradient>
-            </>
-          )}
-
-          {tier === 'platino' && (
-            <>
-              <linearGradient id={metalGradId} x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#ffffff" />
-                <stop offset="30%" stopColor="#e0f2fe" />
-                <stop offset="65%" stopColor="#38bdf8" />
-                <stop offset="100%" stopColor="#0369a1" />
-              </linearGradient>
-              <linearGradient id={darkMetalGradId} x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="#bae6fd" />
-                <stop offset="100%" stopColor="#075985" />
-              </linearGradient>
-              <linearGradient id={baseGradId} x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#0f172a" />
-                <stop offset="50%" stopColor="#1e3a8a" />
-                <stop offset="100%" stopColor="#090d16" />
-              </linearGradient>
-              <linearGradient id={gemGradId} x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#ffffff" />
-                <stop offset="45%" stopColor="#06b6d4" />
-                <stop offset="100%" stopColor="#1d4ed8" />
-              </linearGradient>
-              <radialGradient id={auraGradId} cx="50%" cy="40%" r="52%">
-                <stop offset="0%" stopColor="#7dd3fc" stopOpacity="0.58" />
-                <stop offset="65%" stopColor="#0284c7" stopOpacity="0.2" />
-                <stop offset="100%" stopColor="#0284c7" stopOpacity="0" />
-              </radialGradient>
-            </>
-          )}
-
-          {tier === 'diamante' && (
-            <>
-              <linearGradient id={metalGradId} x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#ffffff" />
-                <stop offset="26%" stopColor="#f5d0fe" />
-                <stop offset="54%" stopColor="#7dd3fc" />
-                <stop offset="80%" stopColor="#fde047" />
-                <stop offset="100%" stopColor="#a21caf" />
-              </linearGradient>
-              <linearGradient id={darkMetalGradId} x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#fde047" />
-                <stop offset="50%" stopColor="#e879f9" />
-                <stop offset="100%" stopColor="#0284c7" />
-              </linearGradient>
-              <linearGradient id={baseGradId} x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#2e1065" />
-                <stop offset="50%" stopColor="#581c87" />
-                <stop offset="100%" stopColor="#1e1b4b" />
-              </linearGradient>
-              <linearGradient id={gemGradId} x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#ffffff" />
-                <stop offset="40%" stopColor="#f0abfc" />
-                <stop offset="75%" stopColor="#38bdf8" />
-                <stop offset="100%" stopColor="#7e22ce" />
-              </linearGradient>
-              <radialGradient id={auraGradId} cx="50%" cy="38%" r="54%">
-                <stop offset="0%" stopColor="#f5d0fe" stopOpacity="0.7" />
-                <stop offset="50%" stopColor="#38bdf8" stopOpacity="0.32" />
-                <stop offset="100%" stopColor="#c084fc" stopOpacity="0" />
-              </radialGradient>
-            </>
+          {isDiamond && (
+            <linearGradient id={prismGradId} x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#38bdf8" />
+              <stop offset="50%" stopColor="#e0e7ff" />
+              <stop offset="100%" stopColor="#6366f1" />
+            </linearGradient>
           )}
         </defs>
 
-        {/* RESPLANDOR DE FONDO (Plata en adelante, crece en intensidad) */}
+        {/* Retículas CAD en las 4 esquinas del visor OLED */}
+        <path
+          d="M4 9 V4 H9 M55 4 H60 V9 M4 55 V60 H9 M55 60 H60 V55"
+          fill="none"
+          stroke={palette.reticle}
+          strokeWidth={1}
+          opacity={isDiamond ? 0.9 : isPlatinumPlus ? 0.78 : isGoldPlus ? 0.65 : isSilverPlus ? 0.52 : 0.4}
+        />
+
+        {/* Halo luminoso pulsante progresivo (Plata -> Oro -> Platino -> Diamante) */}
         {isSilverPlus && (
           <circle
             cx={32}
-            cy={28}
-            r={isDiamond ? 30 : isPlatinumPlus ? 27 : 24}
+            cy={26}
+            r={isDiamond ? 29 : isPlatinumPlus ? 26.5 : isGoldPlus ? 24.5 : 22}
             fill={`url(#${auraGradId})`}
-            className={isGoldPlus ? 'animate-halo-pulse' : ''}
+            className="animate-halo-pulse"
           />
         )}
 
-        {/* HALO SOLAR / ANILLOS GEOMÉTRICOS (Oro, Platino y Diamante) */}
-        {tier === 'oro' && (
-          <g opacity={0.55}>
-            <circle
-              cx={32}
-              cy={26}
-              r={19}
-              fill="none"
-              stroke="#fde047"
-              strokeWidth={0.9}
-              strokeDasharray="3 2.5"
-            />
-          </g>
-        )}
-
-        {isPlatinumPlus && (
-          <g opacity={isDiamond ? 0.85 : 0.65}>
-            <circle
-              cx={32}
-              cy={26}
-              r={21}
-              fill="none"
-              stroke={isDiamond ? '#f0abfc' : '#7dd3fc'}
-              strokeWidth={1}
-              strokeDasharray="4 2"
-            />
-            {isDiamond && (
-              <polygon
-                points="32,5 37,20 53,26 37,32 32,47 27,32 11,26 27,20"
-                fill={`url(#${darkMetalGradId})`}
-                opacity={0.28}
-              />
-            )}
-          </g>
-        )}
-
-        {/* ALAS CELESTIALES (Platino y Platino Diamante) */}
-        {isPlatinumPlus && (
-          <g>
-            {/* Ala izquierda */}
-            <path
-              d="M20 26 C11 22, 6 15, 7 9 C11 12, 16 14, 20 18 C13 17, 9 20, 9 24 C13 23, 17 24, 21 28 C14 28, 11 31, 12 35 C15 33, 19 32, 23 33 Z"
-              fill={`url(#${metalGradId})`}
-              stroke={isDiamond ? '#fdf4ff' : '#e0f2fe'}
-              strokeWidth={0.6}
-            />
-            {/* Ala derecha */}
-            <path
-              d="M44 26 C53 22, 58 15, 57 9 C53 12, 48 14, 44 18 C51 17, 55 20, 55 24 C51 23, 47 24, 43 28 C50 28, 53 31, 52 35 C49 33, 45 32, 41 33 Z"
-              fill={`url(#${metalGradId})`}
-              stroke={isDiamond ? '#fdf4ff' : '#e0f2fe'}
-              strokeWidth={0.6}
-            />
-          </g>
-        )}
-
-        {/* CORONA DE LAUREL (Plata sutil en tallo; Oro y Diamante corona triunfal completa) */}
-        {(tier === 'plata' || tier === 'oro' || isDiamond) && (
-          <g
+        {/* Anillos y escudos de telemetría HUD según rango */}
+        {tier === 'plata' && (
+          <circle
+            cx={32}
+            cy={25}
+            r={21}
             fill="none"
-            stroke={isDiamond ? '#fde047' : `url(#${metalGradId})`}
-            strokeWidth={tier === 'plata' ? 1.3 : 1.7}
-            strokeLinecap="round"
-          >
-            <path d="M23 41 C15 36, 13 25, 17 17" />
-            <path d="M41 41 C49 36, 51 25, 47 17" />
-            {tier !== 'plata' && (
-              <>
-                <path d="M16 32 L13 29 M15 26 L12 23 M16 21 L14 17" />
-                <path d="M48 32 L51 29 M49 26 L52 23 M48 21 L50 17" />
-              </>
-            )}
-          </g>
+            stroke={palette.ring}
+            strokeWidth={0.85}
+            strokeDasharray="3 3"
+            opacity={0.45}
+          />
         )}
 
-        {/* ASAS ESCULPIDAS DEL CÁLIZ */}
-        <path
-          d="M21 19 C13 19, 12 30, 21 32 L22 30 C16 28.5, 16.5 21.5, 21.5 21.5 Z"
-          fill={`url(#${darkMetalGradId})`}
-        />
-        <path
-          d="M43 19 C51 19, 52 30, 43 32 L42 30 C48 28.5, 47.5 21.5, 42.5 21.5 Z"
-          fill={`url(#${darkMetalGradId})`}
-        />
-
-        {/* PEDESTAL ESCALONADO Y COLUMNA */}
-        {/* Columna */}
-        <path d="M29 37 L35 37 L36.5 46 L27.5 46 Z" fill={`url(#${darkMetalGradId})`} />
-        {/* Anillo central del tallo */}
-        <ellipse cx={32} cy={41} rx={4.8} ry={1.7} fill={`url(#${metalGradId})`} />
-
-        {/* Base superior metálica */}
-        <path d="M23 46 L41 46 L43 50 L21 50 Z" fill={`url(#${metalGradId})`} />
-        {/* Pedestal inferior de piedra/metal noble */}
-        <rect x={18} y={50} width={28} height={7} rx={2} fill={`url(#${baseGradId})`} />
-        <rect
-          x={18}
-          y={50}
-          width={28}
-          height={7}
-          rx={2}
-          fill="none"
-          stroke={`url(#${metalGradId})`}
-          strokeWidth={0.9}
-        />
-        {/* Placa grabada en el pedestal */}
-        <rect x={24} y={52} width={16} height={3} rx={0.8} fill={`url(#${metalGradId})`} />
-
-        {/* COPA / CÁLIZ PRINCIPAL */}
-        <path
-          d="M19 16 L45 16 L43 27 C41.8 33.8, 37.5 38, 32 38 C26.5 38, 22.2 33.8, 21 27 Z"
-          fill={`url(#${metalGradId})`}
-        />
-
-        {/* Facetas cristalinas interiores exclusivas de Platino Diamante */}
-        {isDiamond && (
-          <g opacity={0.55}>
-            <polygon points="19,16 32,16 26,35" fill="#ffffff" opacity={0.45} />
-            <polygon points="32,16 45,16 38,35" fill="#38bdf8" opacity={0.35} />
-            <polygon points="26,35 32,16 38,35 32,38" fill="#f0abfc" opacity={0.45} />
-          </g>
-        )}
-
-        {/* Banda de reflejo especular metálico vertical */}
-        <path
-          d="M22.5 17.5 L27 17.5 L26 33.5 C24.2 31.8, 23.1 29.2, 22.7 25.8 Z"
-          fill="#ffffff"
-          opacity={tier === 'bronce' ? 0.25 : 0.42}
-        />
-
-        {/* Labio superior moldeado de la copa */}
-        <rect x={17.5} y={14} width={29} height={3} rx={1.5} fill={`url(#${metalGradId})`} />
-
-        {/* CORONA REAL / CRESTA SUPERIOR SEGÚN DIFICULTAD */}
         {tier === 'oro' && (
-          <path
-            d="M23 14 L25 9.5 L29 12.5 L32 8 L35 12.5 L39 9.5 L41 14 Z"
-            fill={`url(#${metalGradId})`}
+          <circle
+            cx={32}
+            cy={25}
+            r={22.5}
+            fill="none"
+            stroke={palette.ring}
+            strokeWidth={0.95}
+            strokeDasharray="6 2.5 1.5 2.5"
+            opacity={0.62}
           />
         )}
 
         {tier === 'platino' && (
-          <polygon
-            points="32,6.5 33.8,10.5 38,11 34.8,13.5 35.8,17 32,14.8 28.2,17 29.2,13.5 26,11 30.2,10.5"
-            fill="#ffffff"
-            stroke="#38bdf8"
-            strokeWidth={0.6}
-          />
+          <g fill="none" stroke={palette.ring} opacity={0.78}>
+            <circle cx={32} cy={25} r={23.5} strokeWidth={1} strokeDasharray="5 2 1.5 2" />
+            <path d="M32 0.5 V3.5 M6.5 25 H9.5 M54.5 25 H57.5" strokeWidth={1.1} />
+          </g>
         )}
 
         {isDiamond && (
-          <g>
-            {/* Corona imperial flotante */}
-            <path
-              d="M22 13 L23.5 7.5 L28 10.8 L32 5.5 L36 10.8 L40.5 7.5 L42 13 Z"
-              fill="#fde047"
-              stroke="#ffffff"
-              strokeWidth={0.6}
+          <g fill="none">
+            <polygon
+              points="21,4 43,4 58,19 58,34 43,46 21,46 6,34 6,19"
+              stroke={`url(#${prismGradId})`}
+              strokeWidth={1.05}
+              strokeDasharray="5 2"
+              opacity={0.85}
             />
-            <circle cx={32} cy={5.3} r={1.3} fill="#ffffff" />
-            <circle cx={23.5} cy={7.3} r={1} fill="#38bdf8" />
-            <circle cx={40.5} cy={7.3} r={1} fill="#f0abfc" />
+            <path
+              d="M32 1 V4 M4 26 H7 M57 26 H60"
+              stroke="#6366f1"
+              strokeWidth={1.2}
+              opacity={0.9}
+            />
           </g>
         )}
 
-        {/* EMBLEMA CENTRAL / GEMA EN EL PECHO DE LA COPA */}
-        {tier === 'bronce' && (
-          <path
-            d="M32 21 L36 23 L35 28.5 L32 31 L29 28.5 L28 23 Z"
-            fill="#451a03"
-            stroke="#fbbf24"
+        {/* Grupo principal del trofeo con resplandor óptico escalonado */}
+        <g className={palette.cupGlowClass}>
+          {/* Estabilizadores / Aletas cibernéticas angulares según dificultad */}
+          {tier === 'plata' && (
+            <g fill="none" stroke={palette.edgeStroke} strokeWidth={1.25} opacity={0.85}>
+              <polyline points="17.5,33 12.5,29.5 12.5,23.5" />
+              <polyline points="46.5,33 51.5,29.5 51.5,23.5" />
+            </g>
+          )}
+
+          {tier === 'oro' && (
+            <g>
+              <polygon points="17,20.5 9.5,16.5 11,23.5 18,26" fill={`url(#${litGradId})`} stroke={palette.edgeStroke} strokeWidth={0.45} />
+              <polygon points="18,28 11.5,27 13.5,33 20.5,33.5" fill={`url(#${shadowGradId})`} />
+              <polygon points="47,20.5 54.5,16.5 53,23.5 46,26" fill={`url(#${litGradId})`} stroke={palette.edgeStroke} strokeWidth={0.45} />
+              <polygon points="46,28 52.5,27 50.5,33 43.5,33.5" fill={`url(#${shadowGradId})`} />
+            </g>
+          )}
+
+          {tier === 'platino' && (
+            <g>
+              <polygon points="18,19.5 6.5,12 9,19.5 17.5,23.5" fill={`url(#${litGradId})`} stroke={palette.edgeStroke} strokeWidth={0.5} />
+              <polygon points="18,25 8,22.5 10.5,29 19.5,30.5" fill={`url(#${shadowGradId})`} />
+              <polygon points="46,19.5 57.5,12 55,19.5 46.5,23.5" fill={`url(#${litGradId})`} stroke={palette.edgeStroke} strokeWidth={0.5} />
+              <polygon points="46,25 56,22.5 53.5,29 44.5,30.5" fill={`url(#${shadowGradId})`} />
+            </g>
+          )}
+
+          {isDiamond && (
+            <g>
+              <polygon points="18,18.5 5.5,10 8.5,18 17.5,22" fill="#38bdf8" />
+              <polygon points="18,23.5 6.5,20.5 9.5,27 19,28.8" fill="#c7d2fe" />
+              <polygon points="19.5,29.5 10.5,29 13,34.5 21.5,34" fill="#6366f1" />
+              <polygon points="46,18.5 58.5,10 55.5,18 46.5,22" fill="#38bdf8" />
+              <polygon points="46,23.5 57.5,20.5 54.5,27 45,28.8" fill="#c7d2fe" />
+              <polygon points="44.5,29.5 53.5,29 51,34.5 42.5,34" fill="#6366f1" />
+            </g>
+          )}
+
+          {/* Asas mecanizadas CNC de 45° */}
+          <g
+            fill="none"
+            stroke={palette.edgeStroke}
+            strokeWidth={1.65}
+            strokeLinejoin="miter"
+            opacity={0.92}
+          >
+            <polyline points="19.5,19.5 14,19.5 12.2,21.5 12.2,26.8 15.2,29.8 21.5,29.8" />
+            <polyline points="44.5,19.5 50,19.5 51.8,21.5 51.8,26.8 48.8,29.8 42.5,29.8" />
+          </g>
+
+          {/* Columna / Pilón central mecanizado */}
+          <polygon points="29.2,35 34.8,35 36,44.2 28,44.2" fill={`url(#${shadowGradId})`} />
+          <rect x={27.5} y={38.8} width={9} height={2} fill={`url(#${litGradId})`} />
+
+          {/* Plinto escalonado + Pedestal industrial con matriz de 5 LEDs */}
+          <polygon points="21.5,44.2 42.5,44.2 44.5,47.2 19.5,47.2" fill={`url(#${litGradId})`} stroke={palette.edgeStroke} strokeWidth={0.5} />
+          <rect
+            x={15.5}
+            y={47.2}
+            width={33}
+            height={8.8}
+            rx={1}
+            fill="var(--trophy-pedestal-bg)"
+            stroke={palette.edgeStroke}
+            strokeWidth={0.95}
+          />
+
+          {PEDESTAL_LED_X.map((xPos, idx) => {
+            const isLit = idx < meta.qualityRank;
+            const ledColor = isDiamond ? DIAMOND_LED_HEX[idx] : palette.ledHex;
+            return (
+              <rect
+                key={idx}
+                x={xPos}
+                y={50.3}
+                width={3}
+                height={2.6}
+                rx={0.4}
+                fill={isLit ? ledColor : 'var(--trophy-pedestal-led-off)'}
+              />
+            );
+          })}
+
+          {/* Cáliz / Vaso facetado CNC (mitad iluminada + mitad anodizada) */}
+          <polygon
+            points="19.5,17.5 32,17.5 32,35.5 26.8,34 21.5,27.5"
+            fill={`url(#${litGradId})`}
+          />
+          <polygon
+            points="32,17.5 44.5,17.5 42.5,27.5 37.2,34 32,35.5"
+            fill={`url(#${shadowGradId})`}
+          />
+
+          {/* Brillo especular sobre el borde izquierdo de la copa (crece desde Plata hasta Diamante) */}
+          {isSilverPlus && (
+            <polygon
+              points="21,18.2 26,18.2 25.2,30.5 22.4,26.8"
+              fill="#ffffff"
+              opacity={isDiamond ? 0.65 : isPlatinumPlus ? 0.52 : isGoldPlus ? 0.42 : 0.34}
+            />
+          )}
+
+          {/* Facetas internas cristalinas exclusivas de Platino Diamante */}
+          {isDiamond && (
+            <g>
+              <polygon points="19.5,17.5 32,17.5 25.5,31" fill="#ffffff" opacity={0.62} />
+              <polygon points="32,17.5 44.5,17.5 38.5,31" fill="#38bdf8" opacity={0.46} />
+              <polygon points="25.5,31 32,17.5 38.5,31 32,35.5" fill="#6366f1" opacity={0.38} />
+            </g>
+          )}
+
+          {/* Contorno técnico y arista central de la copa */}
+          <polygon
+            points="19.5,17.5 44.5,17.5 42.5,27.5 37.2,34 32,35.5 26.8,34 21.5,27.5"
+            fill="none"
+            stroke={palette.edgeStroke}
             strokeWidth={0.9}
           />
-        )}
-
-        {tier === 'plata' && (
-          <polygon
-            points="32,20.5 33.6,24.2 37.5,24.6 34.5,27.1 35.4,31 32,28.9 28.6,31 29.5,27.1 26.5,24.6 30.4,24.2"
-            fill="#ffffff"
-            stroke="#64748b"
-            strokeWidth={0.6}
+          <line
+            x1={32}
+            y1={17.5}
+            x2={32}
+            y2={35.5}
+            stroke="#ffffff"
+            strokeWidth={0.75}
+            opacity={isSilverPlus ? 0.6 : 0.4}
           />
-        )}
 
-        {isGoldPlus && (
-          <g>
-            {/* Gema facetada (Rubí en Oro, Zafiro en Platino, Diamante Prismático en Leyenda) */}
+          {/* Labio superior biselado de la copa */}
+          <polygon
+            points="17.8,14.5 46.2,14.5 44.8,17.5 19.2,17.5"
+            fill={`url(#${litGradId})`}
+            stroke={palette.edgeStroke}
+            strokeWidth={0.75}
+          />
+
+          {/* Cresta / Corona cibernética superior para Oro, Platino y Diamante */}
+          {tier === 'oro' && (
             <polygon
-              points="32,20 36.8,25.5 32,31.5 27.2,25.5"
-              fill={`url(#${gemGradId})`}
-              stroke="#ffffff"
-              strokeWidth={0.85}
+              points="24.5,14.5 26.5,9.8 29.8,13 32,8 34.2,13 37.5,9.8 39.5,14.5"
+              fill={`url(#${litGradId})`}
+              stroke={palette.edgeStroke}
+              strokeWidth={0.65}
             />
-            <polygon points="32,20 34.5,25.5 32,25.5" fill="#ffffff" opacity={0.65} />
-          </g>
-        )}
+          )}
 
-        {/* CAPA DE BRILLITOS PROGRESIVOS (1 -> 3 -> 6 -> 10 -> 15) */}
-        {sparkles.map((sp, idx) => (
-          <SparkleStar key={idx} spec={sp} />
+          {tier === 'platino' && (
+            <polygon
+              points="32,5.8 35.8,10.8 32,13.2 28.2,10.8"
+              fill="#f0f9ff"
+              stroke="#0284c7"
+              strokeWidth={0.8}
+            />
+          )}
+
+          {isDiamond && (
+            <g>
+              <polygon
+                points="23,13.8 25,8.2 29,11.5 32,5.8 35,11.5 39,8.2 41,13.8"
+                fill={`url(#${prismGradId})`}
+                stroke="#4f46e5"
+                strokeWidth={0.75}
+              />
+              <rect x={31} y={2.8} width={2} height={2} fill="#6366f1" />
+              <rect x={23.8} y={5.2} width={1.8} height={1.8} fill="#38bdf8" />
+              <rect x={38.4} y={5.2} width={1.8} height={1.8} fill="#818cf8" />
+            </g>
+          )}
+
+          {/* Núcleo central del pecho del trofeo */}
+          {tier === 'bronce' && (
+            <g>
+              <polygon
+                points="28,22.5 36,22.5 37.5,25.5 36,28.5 28,28.5 26.5,25.5"
+                fill={palette.coreFill}
+                stroke={palette.coreAccent}
+                strokeWidth={0.85}
+              />
+              <rect x={29.2} y={24.7} width={5.6} height={1.6} fill={palette.coreAccent} />
+            </g>
+          )}
+
+          {tier === 'plata' && (
+            <g>
+              <polygon
+                points="32,20.5 36.2,25.5 32,30.5 27.8,25.5"
+                fill={palette.coreFill}
+                stroke={palette.coreAccent}
+                strokeWidth={0.95}
+              />
+              <rect x={30.7} y={24.2} width={2.6} height={2.6} fill="#ffffff" />
+            </g>
+          )}
+
+          {isGoldPlus && (
+            <g>
+              <polygon
+                points="32,19.8 36.8,25.5 32,31.2 27.2,25.5"
+                fill={palette.coreFill}
+                stroke="#ffffff"
+                strokeWidth={0.95}
+              />
+              <polygon
+                points="32,21.5 35,25.5 32,29.5 29,25.5"
+                fill={isDiamond ? `url(#${prismGradId})` : palette.coreAccent}
+              />
+              <rect x={31.1} y={24.6} width={1.8} height={1.8} fill="#ffffff" />
+            </g>
+          )}
+        </g>
+
+        {/* Micro-nodos LED cuadrados de brillo progresivo (0 -> 2 -> 4 -> 6 -> 9) */}
+        {ledNodes.map((node, idx) => (
+          <g key={idx} transform={`translate(${node.x} ${node.y})`}>
+            <rect
+              x={-node.size / 2}
+              y={-node.size / 2}
+              width={node.size}
+              height={node.size}
+              fill={node.color}
+              className={`sparkle-origin ${node.animClass}`}
+            />
+          </g>
         ))}
       </svg>
     </div>

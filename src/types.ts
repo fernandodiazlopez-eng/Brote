@@ -1,5 +1,5 @@
 /**
- * Tipos e interfaces principales del dominio de Brote.
+ * Tipos e interfaces principales del dominio de Upgrade.
  */
 
 export enum AppTab {
@@ -15,7 +15,21 @@ export enum WorkoutClockMode {
 
 export type WeekdayCode = 'lun' | 'mar' | 'mie' | 'jue' | 'vie' | 'sab' | 'dom';
 
-export type RoutineCategory = 'Fuerza' | 'Cardio';
+export type RoutineCategory = 'Fuerza' | 'Cardio' | 'Híbrida';
+
+export type MuscleGroupId =
+  | 'pecho'
+  | 'hombro'
+  | 'biceps'
+  | 'triceps'
+  | 'antebrazo'
+  | 'abdomen'
+  | 'espalda'
+  | 'gluteo'
+  | 'muslo'
+  | 'gemelos';
+
+export type MuscleFatigueState = 'fresh' | 'recovering' | 'loaded';
 
 export type TrophyTier = 'bronce' | 'plata' | 'oro' | 'platino' | 'diamante';
 
@@ -25,15 +39,16 @@ export type AppLanguage = 'es' | 'en';
 
 export type CustomTextsByLanguage = Partial<Record<AppLanguage, Record<string, string>>>;
 
-export type TreeSeasonId = 'otono' | 'invierno' | 'primavera' | 'verano';
-
 export type AccentPaletteId =
-  | 'lima'
-  | 'esmeralda'
-  | 'oceano'
   | 'ambar'
+  | 'coral'
+  | 'monocromo'
+  | 'frambuesa'
+  | 'oceano'
+  | 'lima'
   | 'amatista'
-  | 'coral';
+  | 'esmeralda'
+  | 'custom';
 
 export interface Trophy {
   id: string;
@@ -46,12 +61,14 @@ export interface XpFormulas {
   stepsFormula: string;
   strengthFormula: string;
   cardioFormula: string;
+  hybridFormula: string;
 }
 
 export interface RoutineExercise {
   id: string;
   name: string;
   setsReps: string;
+  muscleGroups?: MuscleGroupId[];
 }
 
 export interface Routine {
@@ -61,6 +78,7 @@ export interface Routine {
   durationMin: number;
   xpReward: number;
   exercises: RoutineExercise[];
+  muscleGroups?: MuscleGroupId[];
   deletedAt?: string;
 }
 
@@ -72,6 +90,8 @@ export interface CompletedWorkout {
   durationMin: number;
   xpEarned: number;
   timeLabel: string;
+  muscleGroups?: MuscleGroupId[];
+  completionRatio?: number;
 }
 
 export interface DailyActivityRecord {
@@ -99,7 +119,7 @@ export interface AppPersistentState {
   stepGoal: number;
   themeMode: ThemeMode;
   accentPalette: AccentPaletteId;
-  seasonsEnabled: boolean;
+  customAccentHex?: string;
   language: AppLanguage;
   hasSelectedInitialLanguage: boolean;
   customTexts: CustomTextsByLanguage;
@@ -110,7 +130,12 @@ export interface AppPersistentState {
   dismissedRepeatWeeks: string[];
   unlockedTrophies: Record<string, string>; // trophyId -> fecha ISO de obtención
   scheduleChangesByDateIso: Record<string, number>; // contador diario para el logro «El indeciso»
+  bugUnlockedAtIso?: string; // fecha ISO al alcanzar Nivel 10 y descubrir a Bug
+  bugHockeyUnlockedAtIso?: string; // fecha ISO al alcanzar Nivel 50 y desbloquear modo Air Hockey
+  hideBug?: boolean; // opción en Ajustes para ocultar o mostrar a Bug tras desbloquearlo
 }
+
+export type BugUnlockMilestone = 'level10' | 'level50';
 
 export interface ActiveWorkoutSessionState {
   activeTab: AppTab;
@@ -118,6 +143,7 @@ export interface ActiveWorkoutSessionState {
   isSessionViewOpen: boolean;
   sessionOriginTab: AppTab;
   checkedExercises: Record<string, boolean>;
+  repCounter: number;
   clockMode: WorkoutClockMode;
   stopwatchAccumMs: number;
   stopwatchStartMs: number | null;

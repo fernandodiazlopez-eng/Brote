@@ -1,7 +1,7 @@
 /**
- * Vista de Entrenamiento:
+ * Vista de Rutinas:
  * - Modo A (Biblioteca): Crear, editar, iniciar o enviar rutinas a la papelera (con restauración).
- * - Modo B (Sesión activa): Cronómetro de entrenamiento, Temporizador de descanso editable,
+ * - Modo B (Sesión activa): Cronómetro digital Nothing × Cyberpunk, Temporizador de descanso editable,
  *   lista interactiva de ejercicios y cierre de sesión con cálculo real de minutos/XP.
  */
 
@@ -21,21 +21,35 @@ import {
 } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 import {
+  MuscleGroupId,
   Routine,
   RoutineCategory,
   RoutineExercise,
   WorkoutClockMode,
   XpFormulas,
 } from '../types';
+import {
+  categorySupportsMuscles,
+  extractMuscleGroupsFromExercises,
+  getLocalizedMuscleLabel,
+} from '../utils/muscleRecovery';
 import { calculateRoutineBaseXp } from '../utils/progressionRules';
+import { AnalogRepCounter } from './AnalogRepCounter';
+import { BugGlobalMood, BugPerch } from './BugCompanion';
+import { MuscleGroupSelect } from './MuscleGroupSelect';
 
 interface TrainingViewProps {
   xpFormulas: XpFormulas;
   routines: Routine[];
   trashedRoutines: Routine[];
   activeSessionRoutine: Routine | null;
+  sessionFullXp?: number;
   checkedExercises: Record<string, boolean>;
   onToggleExerciseCheck: (exerciseId: string) => void;
+  repCounter: number;
+  onIncrementRepCounter: () => void;
+  onResetRepCounter: () => void;
+  onChangeRepCounter: (nextValue: number) => void;
   clockMode: WorkoutClockMode;
   onChangeClockMode: (mode: WorkoutClockMode) => void;
   isClockRunning: boolean;
@@ -51,6 +65,10 @@ interface TrainingViewProps {
   onMoveRoutineToTrash: (routineId: string) => void;
   onRestoreRoutine: (routineId: string) => void;
   onPermanentDeleteRoutine: (routineId: string) => void;
+  showBug?: boolean;
+  bugMood?: BugGlobalMood;
+  canPetBug?: boolean;
+  canLaunchBugHockey?: boolean;
 }
 
 const COUNTDOWN_PRESET_MINUTES = [
@@ -60,7 +78,7 @@ const COUNTDOWN_PRESET_MINUTES = [
   { minutes: 10, seconds: 600 },
 ];
 
-const ROUTINE_CATEGORIES: RoutineCategory[] = ['Fuerza', 'Cardio'];
+const ROUTINE_CATEGORIES: RoutineCategory[] = ['Fuerza', 'Híbrida', 'Cardio'];
 
 function padTwoDigits(value: number): string {
   return String(value).padStart(2, '0');
@@ -80,8 +98,13 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
   routines,
   trashedRoutines,
   activeSessionRoutine,
+  sessionFullXp,
   checkedExercises,
   onToggleExerciseCheck,
+  repCounter,
+  onIncrementRepCounter,
+  onResetRepCounter,
+  onChangeRepCounter,
   clockMode,
   onChangeClockMode,
   isClockRunning,
@@ -97,6 +120,10 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
   onMoveRoutineToTrash,
   onRestoreRoutine,
   onPermanentDeleteRoutine,
+  showBug = false,
+  bugMood = 'none',
+  canPetBug = false,
+  canLaunchBugHockey = false,
 }) => {
   const { t, formatCategory } = useI18n();
 
@@ -114,6 +141,7 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
   const [draftExercises, setDraftExercises] = useState<RoutineExercise[]>([]);
   const [newExerciseName, setNewExerciseName] = useState('');
   const [newExerciseSets, setNewExerciseSets] = useState('4 × 10');
+  const [newExerciseMuscles, setNewExerciseMuscles] = useState<MuscleGroupId[]>([]);
 
   useEffect(() => {
     if (!isEditorOpen && !isTrashOpen) return;
@@ -170,6 +198,7 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
     setDraftExercises([]);
     setNewExerciseName('');
     setNewExerciseSets('4 × 10');
+    setNewExerciseMuscles([]);
     setIsEditorOpen(true);
   };
 
@@ -178,24 +207,50 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
     setDraftTitle(routine.title);
     setDraftCategory(routine.category);
     setDraftDurationInput(String(routine.durationMin));
-    setDraftExercises(routine.exercises);
+    setDraftExercises(
+      routine.exercises.map((ex) => ({
+        ...ex,
+        ...(ex.muscleGroups ? { muscleGroups: [...ex.muscleGroups] } : {}),
+      }))
+    );
     setNewExerciseName('');
     setNewExerciseSets('4 × 10');
+    setNewExerciseMuscles([]);
     setIsEditorOpen(true);
+  };
+
+  const handleUpdateDraftExerciseMuscles = (
+    exerciseId: string,
+    nextMuscles: MuscleGroupId[]
+  ) => {
+    setDraftExercises((prev) =>
+      prev.map((item) => {
+        if (item.id !== exerciseId) return item;
+        if (nextMuscles.length === 0) {
+          const { muscleGroups: _removed, ...rest } = item;
+          return rest;
+        }
+        return { ...item, muscleGroups: nextMuscles };
+      })
+    );
   };
 
   const handleAddDraftExercise = () => {
     const trimmedName = newExerciseName.trim();
     if (!trimmedName) return;
+    const includeMuscles =
+      categorySupportsMuscles(draftCategory) && newExerciseMuscles.length > 0;
     setDraftExercises((prev) => [
       ...prev,
       {
         id: `ex-${Date.now()}`,
         name: trimmedName,
         setsReps: newExerciseSets.trim() || '3 × 10',
+        ...(includeMuscles ? { muscleGroups: [...newExerciseMuscles] } : {}),
       },
     ]);
     setNewExerciseName('');
+    setNewExerciseMuscles([]);
   };
 
   const handleSaveRoutineForm = (e: React.FormEvent) => {
@@ -206,19 +261,30 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
       Number.isFinite(parsedDuration) && parsedDuration >= 1
         ? Math.min(240, parsedDuration)
         : 45;
+    const supportsMuscles = categorySupportsMuscles(draftCategory);
     const pendingExerciseName = newExerciseName.trim();
-    const finalExercises = pendingExerciseName
+    const rawExercises: RoutineExercise[] = pendingExerciseName
       ? [
           ...draftExercises,
           {
             id: `ex-${Date.now()}`,
             name: pendingExerciseName,
             setsReps: newExerciseSets.trim() || '3 × 10',
+            ...(supportsMuscles && newExerciseMuscles.length > 0
+              ? { muscleGroups: [...newExerciseMuscles] }
+              : {}),
           },
         ]
       : draftExercises;
 
+    const finalExercises: RoutineExercise[] = supportsMuscles
+      ? rawExercises
+      : rawExercises.map(({ muscleGroups: _removed, ...rest }) => rest);
+
     const xpReward = calculateRoutineBaseXp(draftCategory, safeDuration, xpFormulas);
+    const cleanedMuscles = supportsMuscles
+      ? extractMuscleGroupsFromExercises(finalExercises)
+      : undefined;
 
     onSaveRoutine(
       {
@@ -228,21 +294,31 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
         durationMin: safeDuration,
         xpReward,
         exercises: finalExercises,
+        ...(cleanedMuscles ? { muscleGroups: cleanedMuscles } : {}),
       },
       !editingRoutineId
     );
     setNewExerciseName('');
+    setNewExerciseMuscles([]);
     setIsEditorOpen(false);
   };
 
   // --- MODO B: SESIÓN DE ENTRENAMIENTO ACTIVA ---
   if (activeSessionRoutine) {
-    const completedCount = activeSessionRoutine.exercises.filter(
-      (ex) => checkedExercises[ex.id]
+    const totalExercises = activeSessionRoutine.exercises.length;
+    const completedCount = activeSessionRoutine.exercises.filter((ex) =>
+      Boolean(checkedExercises[ex.id])
     ).length;
+    const effectiveSessionXp = sessionFullXp ?? activeSessionRoutine.xpReward;
+    const perExerciseXp =
+      totalExercises > 0 ? Math.round(effectiveSessionXp / totalExercises) : effectiveSessionXp;
+    const earnedSessionXp =
+      totalExercises > 0
+        ? Math.round((effectiveSessionXp * completedCount) / totalExercises)
+        : effectiveSessionXp;
 
     return (
-      <div className="max-w-2xl mx-auto space-y-6">
+      <div className="max-w-2xl mx-auto space-y-5">
         <div className="flex items-center justify-between gap-3 pb-3 border-b border-subtle">
           <button
             type="button"
@@ -254,14 +330,16 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
           </button>
 
           <span className="font-mono text-xs font-bold text-accent tabular-nums">
-            +{activeSessionRoutine.xpReward} {t.profile_xp_unit}
+            {totalExercises > 0
+              ? `+${earnedSessionXp} / ${effectiveSessionXp} ${t.profile_xp_unit}`
+              : `+${effectiveSessionXp} ${t.profile_xp_unit}`}
           </span>
         </div>
 
-        {/* Reloj: Cronómetro o Temporizador */}
-        <section className="sheet-panel p-5 sm:p-6 space-y-5">
+        {/* Reloj: Cronómetro o Temporizador Digital Nothing × Cyberpunk */}
+        <section className="sheet-panel ndot-surface p-5 sm:p-6 space-y-5">
           <div className="flex items-center justify-between gap-3 flex-wrap">
-            <h1 className="text-xl sm:text-2xl font-bold text-fg">
+            <h1 className="text-xl sm:text-2xl font-bold uppercase tracking-wide text-fg">
               {activeSessionRoutine.title}
             </h1>
 
@@ -276,7 +354,7 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
                   setEditingClockField(null);
                   onChangeClockMode(WorkoutClockMode.STOPWATCH);
                 }}
-                className={`seg-btn min-h-[34px] px-3 py-1 text-xs whitespace-nowrap ${
+                className={`seg-btn min-h-[34px] px-3 py-1 text-xs uppercase whitespace-nowrap ${
                   clockMode === WorkoutClockMode.STOPWATCH ? 'seg-btn-active' : ''
                 }`}
               >
@@ -288,7 +366,7 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
                   setEditingClockField(null);
                   onChangeClockMode(WorkoutClockMode.COUNTDOWN);
                 }}
-                className={`seg-btn min-h-[34px] px-3 py-1 text-xs whitespace-nowrap ${
+                className={`seg-btn min-h-[34px] px-3 py-1 text-xs uppercase whitespace-nowrap ${
                   clockMode === WorkoutClockMode.COUNTDOWN ? 'seg-btn-active' : ''
                 }`}
               >
@@ -320,7 +398,7 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
             </div>
           )}
 
-          <div className="py-7 border-y border-subtle flex items-center justify-center">
+          <div className="py-7 px-4 rounded-[4px] bg-canvas/85 border border-subtle flex items-center justify-center">
             {clockMode === WorkoutClockMode.STOPWATCH ? (
               <span className="font-mono text-5xl sm:text-6xl font-bold tracking-tighter text-fg tabular-nums">
                 {formatStopwatchDisplay(displayedSeconds)}
@@ -351,13 +429,13 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
                     type="button"
                     onClick={() => openClockFieldEditor('min')}
                     aria-label={t.editor_minutes_label}
-                    className="px-2 py-0.5 rounded-lg hover:bg-elevated transition cursor-pointer"
+                    className="px-2 py-0.5 rounded-[4px] hover:bg-elevated transition cursor-pointer"
                   >
                     {padTwoDigits(countdownMinutes)}
                   </button>
                 )}
 
-                <span className="text-fg-muted select-none">:</span>
+                <span className="text-accent select-none">:</span>
 
                 {editingClockField === 'sec' ? (
                   <form
@@ -383,7 +461,7 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
                     type="button"
                     onClick={() => openClockFieldEditor('sec')}
                     aria-label={t.session_sec_short}
-                    className="px-2 py-0.5 rounded-lg hover:bg-elevated transition cursor-pointer"
+                    className="px-2 py-0.5 rounded-[4px] hover:bg-elevated transition cursor-pointer"
                   >
                     {padTwoDigits(countdownSeconds)}
                   </button>
@@ -428,10 +506,22 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
           </div>
         </section>
 
+        {/* Contador de repeticiones de rodillos (00 a 99) */}
+        <AnalogRepCounter
+          value={repCounter}
+          label={t.session_reps_label}
+          resetLabel={t.session_reset_label}
+          onIncrement={onIncrementRepCounter}
+          onReset={onResetRepCounter}
+          onChangeValue={onChangeRepCounter}
+        />
+
         {/* Lista de ejercicios de la sesión */}
         <section className="sheet-panel p-5 sm:p-6 space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-fg">{t.editor_exercises_label}</h2>
+            <h2 className="text-base font-bold uppercase tracking-wide text-fg">
+              {t.editor_exercises_label}
+            </h2>
             <span className="font-mono text-xs text-fg-muted tabular-nums">
               {completedCount}/{activeSessionRoutine.exercises.length}
             </span>
@@ -452,10 +542,10 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <span
-                        className={`w-5 h-5 rounded-[5px] border flex items-center justify-center transition shrink-0 ${
+                        className={`w-5 h-5 rounded-[3px] border flex items-center justify-center transition shrink-0 ${
                           isDone
-                            ? 'bg-accent border-accent text-accent-fg'
-                            : 'bg-canvas border-subtle text-transparent'
+                            ? 'bg-accent-fill border-accent-fill text-accent-fg'
+                            : 'bg-canvas border-strong text-transparent'
                         }`}
                       >
                         <Check className="w-3.5 h-3.5 stroke-[2.75]" />
@@ -468,9 +558,35 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
                         {exercise.name}
                       </span>
                     </div>
-                    <span className="text-xs font-mono text-fg-muted tabular-nums shrink-0">
-                      {exercise.setsReps}
-                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0 max-w-[58%] text-right">
+                      {categorySupportsMuscles(activeSessionRoutine.category) &&
+                        exercise.muscleGroups &&
+                        exercise.muscleGroups.length > 0 && (
+                          <>
+                            <span className="text-[11px] text-fg-secondary truncate">
+                              {exercise.muscleGroups
+                                .map((m) => getLocalizedMuscleLabel(m, t))
+                                .join(' · ')}
+                            </span>
+                            <span aria-hidden="true" className="text-xs text-fg-muted shrink-0">
+                              ·
+                            </span>
+                          </>
+                        )}
+                      <span className="text-xs font-mono text-fg-muted tabular-nums shrink-0">
+                        {exercise.setsReps}
+                      </span>
+                      <span aria-hidden="true" className="text-xs text-fg-muted shrink-0">
+                        ·
+                      </span>
+                      <span
+                        className={`text-xs font-mono tabular-nums shrink-0 ${
+                          isDone ? 'text-accent font-semibold' : 'text-fg-muted'
+                        }`}
+                      >
+                        +{perExerciseXp} {t.profile_xp_unit}
+                      </span>
+                    </div>
                   </button>
                 );
               })}
@@ -480,10 +596,16 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
           <button
             type="button"
             onClick={onCompleteWorkout}
-            className="btn-primary w-full min-h-[46px] px-4 py-2 text-sm flex items-center justify-center gap-2 whitespace-nowrap"
+            disabled={totalExercises > 0 && completedCount === 0}
+            className="btn-primary w-full min-h-[46px] px-4 py-2 text-sm flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-45 disabled:pointer-events-none"
           >
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>{t.session_finish_btn}</span>
+            {earnedSessionXp > 0 && (
+              <span className="font-mono text-xs opacity-90 tabular-nums">
+                · +{earnedSessionXp} {t.profile_xp_unit}
+              </span>
+            )}
           </button>
         </section>
       </div>
@@ -491,12 +613,31 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
   }
 
   // --- MODO A: BIBLIOTECA DE RUTINAS ---
+  const parsedDraftDuration = parseInt(draftDurationInput, 10);
+  const safeDraftDuration =
+    Number.isFinite(parsedDraftDuration) && parsedDraftDuration >= 1
+      ? Math.min(240, parsedDraftDuration)
+      : 45;
+  const draftRoutineXp = calculateRoutineBaseXp(draftCategory, safeDraftDuration, xpFormulas);
+  const perDraftExerciseXp =
+    draftExercises.length > 0 ? Math.round(draftRoutineXp / draftExercises.length) : 0;
   return (
     <div className="max-w-3xl mx-auto space-y-5">
-      <div className="flex items-center justify-between gap-3 pb-3 border-b border-subtle">
-        <h1 className="text-2xl font-bold text-fg">{t.training_title}</h1>
+      <div className="relative flex items-center justify-between gap-3 pb-3 border-b border-subtle">
+        <h1 className="text-2xl font-bold uppercase tracking-wide text-fg">{t.training_title}</h1>
 
         <div className="flex items-center gap-2">
+          {showBug && (
+            <div className="self-end -mb-3 mr-1 sm:mr-2 flex items-end">
+              <BugPerch
+                gazeMode="down"
+                globalMood={bugMood}
+                canPet={canPetBug}
+                canLaunchHockey={canLaunchBugHockey}
+              />
+            </div>
+          )}
+
           <button
             type="button"
             onClick={() => setIsTrashOpen(true)}
@@ -519,7 +660,7 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
       </div>
 
       {routines.length === 0 ? (
-        <div className="py-12 text-center border-b border-subtle">
+        <div className="sheet-panel ndot-surface py-12 px-4 text-center">
           <p className="text-sm text-fg-muted">{t.training_empty}</p>
         </div>
       ) : (
@@ -543,6 +684,18 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
                     +{routine.xpReward} {t.profile_xp_unit}
                   </span>
                 </div>
+                {(() => {
+                  const displayMuscles =
+                    extractMuscleGroupsFromExercises(routine.exercises) ?? routine.muscleGroups;
+                  if (!displayMuscles || displayMuscles.length === 0) return null;
+                  return (
+                    <p className="text-[11px] text-fg-secondary mt-1 truncate">
+                      {displayMuscles
+                        .map((muscle) => getLocalizedMuscleLabel(muscle, t))
+                        .join(' · ')}
+                    </p>
+                  );
+                })()}
               </div>
 
               <div className="flex items-center gap-1.5 shrink-0">
@@ -581,7 +734,7 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
       {/* Modal: Crear / Editar Rutina */}
       {isEditorOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/65 backdrop-blur-sm p-0 sm:p-4"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm p-0 sm:p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="editor-title"
@@ -591,10 +744,13 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
             }
           }}
         >
-          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto modal-sheet rounded-t-2xl sm:rounded-xl p-5 sm:p-6 safe-bottom-modal">
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto modal-sheet sheet-panel rounded-t-xl sm:rounded-md p-5 sm:p-6 safe-bottom-modal">
             <div className="w-9 h-1 bg-elevated rounded-full mx-auto mb-4 sm:hidden" />
             <div className="flex items-center justify-between gap-4 pb-3 border-b border-subtle">
-              <h3 id="editor-title" className="text-base font-bold text-fg">
+              <h3
+                id="editor-title"
+                className="text-base font-bold uppercase tracking-wide text-fg"
+              >
                 {editingRoutineId ? t.editor_edit_routine : t.editor_new_routine}
               </h3>
               <button
@@ -609,7 +765,10 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
 
             <form onSubmit={handleSaveRoutineForm} className="mt-4 space-y-4">
               <div>
-                <label htmlFor="rt-title" className="block text-xs font-semibold text-fg mb-1.5">
+                <label
+                  htmlFor="rt-title"
+                  className="block font-display text-xs font-semibold uppercase tracking-wider text-fg mb-1.5"
+                >
                   {t.editor_name_label}
                 </label>
                 <input
@@ -625,7 +784,10 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label htmlFor="rt-cat" className="block text-xs font-semibold text-fg mb-1.5">
+                  <label
+                    htmlFor="rt-cat"
+                    className="block font-display text-xs font-semibold uppercase tracking-wider text-fg mb-1.5"
+                  >
                     {t.editor_type_label}
                   </label>
                   <select
@@ -643,7 +805,10 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
                 </div>
 
                 <div>
-                  <label htmlFor="rt-dur" className="block text-xs font-semibold text-fg mb-1.5">
+                  <label
+                    htmlFor="rt-dur"
+                    className="block font-display text-xs font-semibold uppercase tracking-wider text-fg mb-1.5"
+                  >
                     {t.editor_minutes_label}
                   </label>
                   <input
@@ -673,76 +838,104 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-fg">
+              <div className="space-y-2.5">
+                <p className="font-display text-xs font-semibold uppercase tracking-wider text-fg">
                   {t.editor_exercises_label} ({draftExercises.length})
                 </p>
 
-                <div className="divide-y divide-subtle max-h-40 overflow-y-auto">
-                  {draftExercises.map((exercise) => (
-                    <div
-                      key={exercise.id}
-                      className="py-2 flex items-center justify-between gap-2"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-fg truncate">{exercise.name}</p>
-                        <p className="text-[11px] font-mono text-fg-muted tabular-nums">
-                          {exercise.setsReps}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setDraftExercises((prev) =>
-                            prev.filter((item) => item.id !== exercise.id)
-                          )
-                        }
-                        aria-label={`${t.common_delete} ${exercise.name}`}
-                        className="btn-quiet min-h-[36px] min-w-[36px] flex items-center justify-center"
+                {draftExercises.length > 0 && (
+                  <div className="divide-y divide-subtle border-y border-subtle">
+                    {draftExercises.map((exercise) => (
+                      <div
+                        key={exercise.id}
+                        className="py-2.5 flex items-center justify-between gap-2"
                       >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium text-fg truncate">{exercise.name}</p>
+                          <p className="text-[11px] font-mono text-fg-muted tabular-nums">
+                            <span>{exercise.setsReps}</span>
+                            <span aria-hidden="true"> · </span>
+                            <span className="text-accent">
+                              +{perDraftExerciseXp} {t.profile_xp_unit}
+                            </span>
+                          </p>
+                        </div>
 
-                <div className="grid grid-cols-12 gap-2 pt-1">
-                  <input
-                    type="text"
-                    value={newExerciseName}
-                    onChange={(e) => setNewExerciseName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddDraftExercise();
-                      }
-                    }}
-                    placeholder={t.editor_exercise_placeholder}
-                    aria-label={t.editor_exercise_placeholder}
-                    className="input-field col-span-6 min-h-[42px] px-3 py-2 text-xs placeholder:text-fg-muted"
-                  />
-                  <input
-                    type="text"
-                    value={newExerciseSets}
-                    onChange={(e) => setNewExerciseSets(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddDraftExercise();
-                      }
-                    }}
-                    placeholder={t.editor_sets_placeholder}
-                    aria-label={t.editor_sets_placeholder}
-                    className="input-field col-span-4 min-h-[42px] px-3 py-2 text-xs font-mono placeholder:text-fg-muted"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddDraftExercise}
-                    aria-label={t.profile_add_btn}
-                    className="btn-secondary col-span-2 min-h-[42px] text-accent flex items-center justify-center"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </button>
+                        {categorySupportsMuscles(draftCategory) && (
+                          <div className="w-36 sm:w-44 shrink-0">
+                            <MuscleGroupSelect
+                              compact
+                              value={exercise.muscleGroups ?? []}
+                              onChange={(nextMuscles) =>
+                                handleUpdateDraftExerciseMuscles(exercise.id, nextMuscles)
+                              }
+                            />
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDraftExercises((prev) =>
+                              prev.filter((item) => item.id !== exercise.id)
+                            )
+                          }
+                          aria-label={`${t.common_delete} ${exercise.name}`}
+                          className="btn-quiet min-h-[34px] min-w-[34px] flex items-center justify-center shrink-0"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="space-y-2 pt-1">
+                  <div className="grid grid-cols-12 gap-2">
+                    <input
+                      type="text"
+                      value={newExerciseName}
+                      onChange={(e) => setNewExerciseName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddDraftExercise();
+                        }
+                      }}
+                      placeholder={t.editor_exercise_placeholder}
+                      aria-label={t.editor_exercise_placeholder}
+                      className="input-field col-span-6 min-h-[42px] px-3 py-2 text-xs placeholder:text-fg-muted"
+                    />
+                    <input
+                      type="text"
+                      value={newExerciseSets}
+                      onChange={(e) => setNewExerciseSets(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddDraftExercise();
+                        }
+                      }}
+                      placeholder={t.editor_sets_placeholder}
+                      aria-label={t.editor_sets_placeholder}
+                      className="input-field col-span-4 min-h-[42px] px-3 py-2 text-xs font-mono placeholder:text-fg-muted"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddDraftExercise}
+                      aria-label={t.profile_add_btn}
+                      className="btn-secondary col-span-2 min-h-[42px] text-accent flex items-center justify-center"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {categorySupportsMuscles(draftCategory) && (
+                    <MuscleGroupSelect
+                      value={newExerciseMuscles}
+                      onChange={setNewExerciseMuscles}
+                    />
+                  )}
                 </div>
               </div>
 
@@ -769,7 +962,7 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
       {/* Modal: Papelera de Rutinas */}
       {isTrashOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/65 backdrop-blur-sm p-0 sm:p-4"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm p-0 sm:p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="trash-title"
@@ -779,10 +972,13 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
             }
           }}
         >
-          <div className="w-full max-w-md max-h-[85vh] overflow-y-auto modal-sheet rounded-t-2xl sm:rounded-xl p-5 sm:p-6 safe-bottom-modal">
+          <div className="w-full max-w-md max-h-[85vh] overflow-y-auto modal-sheet sheet-panel rounded-t-xl sm:rounded-md p-5 sm:p-6 safe-bottom-modal">
             <div className="w-9 h-1 bg-elevated rounded-full mx-auto mb-4 sm:hidden" />
             <div className="flex items-center justify-between gap-4 pb-2 border-b border-subtle">
-              <h3 id="trash-title" className="text-base font-bold text-fg">
+              <h3
+                id="trash-title"
+                className="text-base font-bold uppercase tracking-wide text-fg"
+              >
                 {t.trash_title}
               </h3>
               <button

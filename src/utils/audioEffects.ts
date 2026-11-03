@@ -266,6 +266,128 @@ export function playTrophyUnlockSound(tier: TrophyTier): void {
   }
 }
 
+let lastBugBounceMs = 0;
+
+/** Rebote arcade estilo 8-bits cuando Bug colisiona contra las paredes en modo Air Hockey (Nivel 50+). */
+export function playBugBounceSound(speedRatio = 0.7): void {
+  const nowWallMs = Date.now();
+  if (nowWallMs - lastBugBounceMs < 42) return;
+  lastBugBounceMs = nowWallMs;
+
+  try {
+    const ctx = getOrCreateAudioContext();
+    if (!ctx) return;
+
+    cancelScheduledSuspend();
+    activeSoundEffectsCount += 1;
+
+    if (ctx.state === 'suspended') {
+      void ctx.resume().catch(() => {});
+    }
+
+    const now = ctx.currentTime;
+    const clampedRatio = Math.max(0.25, Math.min(1, speedRatio));
+    const baseFreq = 260 + clampedRatio * 180;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(2200, now);
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(baseFreq, now);
+    osc.frequency.setValueAtTime(baseFreq * 1.5, now + 0.024);
+
+    const peakGain = 0.055 + clampedRatio * 0.055;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(peakGain, now + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.062);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.onended = () => {
+      activeSoundEffectsCount = Math.max(0, activeSoundEffectsCount - 1);
+      try {
+        osc.disconnect();
+        filter.disconnect();
+        gain.disconnect();
+      } catch {
+        // Ignorar errores de desconexión
+      }
+      scheduleAudioSuspendWhenIdle(120);
+    };
+
+    osc.start(now);
+    osc.stop(now + 0.068);
+  } catch {
+    activeSoundEffectsCount = Math.max(0, activeSoundEffectsCount - 1);
+    scheduleAudioSuspendWhenIdle(120);
+  }
+}
+
+/** Jingle retro 8-bits al descubrir a Bug (Nivel 10) o desbloquear su modo Air Hockey (Nivel 50). */
+export function playBugUnlockSound(isLevel50 = false): void {
+  try {
+    const ctx = getOrCreateAudioContext();
+    if (!ctx) return;
+
+    cancelScheduledSuspend();
+    activeSoundEffectsCount += 1;
+
+    if (ctx.state === 'suspended') {
+      void ctx.resume().catch(() => {});
+    }
+
+    const now = ctx.currentTime;
+    const notes = isLevel50
+      ? [523.25, 659.25, 783.99, 1046.5, 1318.5]
+      : [440, 554.37, 659.25, 880];
+    const stepSec = 0.075;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(2400, now);
+    filter.connect(ctx.destination);
+
+    notes.forEach((freq, idx) => {
+      const start = now + idx * stepSec;
+      const dur = idx === notes.length - 1 ? 0.24 : 0.07;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(freq, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.linearRampToValueAtTime(0.085, start + 0.006);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+      osc.connect(gain);
+      gain.connect(filter);
+      osc.start(start);
+      osc.stop(start + dur + 0.01);
+    });
+
+    if (typeof window !== 'undefined') {
+      const totalMs = Math.round((notes.length * stepSec + 0.3) * 1000);
+      window.setTimeout(() => {
+        activeSoundEffectsCount = Math.max(0, activeSoundEffectsCount - 1);
+        try {
+          filter.disconnect();
+        } catch {
+          // Ignorar errores de desconexión
+        }
+        scheduleAudioSuspendWhenIdle(120);
+      }, totalMs);
+    } else {
+      activeSoundEffectsCount = Math.max(0, activeSoundEffectsCount - 1);
+    }
+  } catch {
+    activeSoundEffectsCount = Math.max(0, activeSoundEffectsCount - 1);
+    scheduleAudioSuspendWhenIdle(120);
+  }
+}
+
 function playAlarmChimeOnce(): void {
   try {
     const ctx = getOrCreateAudioContext();
@@ -346,10 +468,7 @@ export function startTimerAlarm(
       const restDone = copy?.restDone || 'Tiempo de descanso completado';
       const notificationBody = routineTitle ? `${routineTitle} · ${tapToStop}` : restDone;
 
-      const isLightMode =
-        typeof document !== 'undefined' &&
-        document.documentElement.dataset.themeMode === 'light';
-      const notifIcon = isLightMode ? '/pwa-light-192x192.png' : '/pwa-dark-192x192.png';
+      const notifIcon = '/pwa-192x192.png';
 
       if ('serviceWorker' in navigator) {
         void navigator.serviceWorker.ready

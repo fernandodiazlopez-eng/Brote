@@ -1,10 +1,6 @@
 /**
- * Gestión de persistencia en localStorage, aplicación del tema visual
+ * Gestión de persistencia en localStorage, aplicación del tema visual Nothing/Cyberpunk
  * y reconciliación diaria al cambiar de fecha en el calendario real.
- *
- * Incluye migración limpia que reinicia todas las estadísticas a 0 (XP, nivel,
- * pasos, historial, constancia y trofeos), conservando únicamente preferencias
- * visuales y plantillas de rutinas si existían en versiones previas.
  */
 
 import { isValidUiTextKey } from '../i18n/translations';
@@ -37,11 +33,18 @@ import {
   MAX_LEVEL,
   MAX_TOTAL_XP,
 } from './progressionRules';
+import {
+  categorySupportsMuscles,
+  isValidMuscleGroupId,
+  sanitizeMuscleGroups,
+} from './muscleRecovery';
 
-export const APP_STATE_STORAGE_KEY = 'brote_app_state_v2';
-export const WORKOUT_SESSION_STORAGE_KEY = 'brote_workout_session_v2';
+export const APP_STATE_STORAGE_KEY = 'upgrade_app_state_v3';
+export const WORKOUT_SESSION_STORAGE_KEY = 'upgrade_workout_session_v3';
 
 // Claves anteriores para migración transparente sin perder progreso
+const PREVIOUS_BROTE_STATE_KEY = 'brote_app_state_v2';
+const PREVIOUS_BROTE_SESSION_KEY = 'brote_workout_session_v2';
 const PREVIOUS_KINETIX_STATE_KEY = 'kinetix_app_state_v2';
 const PREVIOUS_KINETIX_SESSION_KEY = 'kinetix_workout_session_v2';
 const LEGACY_STATE_KEY = 'fitness_rpg_real_calendar_v1';
@@ -51,13 +54,91 @@ export const MAX_STOPWATCH_MS = 12 * 3600 * 1000;
 const RECENT_ALARM_WINDOW_MS = 5 * 60 * 1000;
 
 const VALID_ACCENT_PALETTES: readonly AccentPaletteId[] = [
-  'lima',
-  'esmeralda',
-  'oceano',
   'ambar',
-  'amatista',
   'coral',
+  'monocromo',
+  'frambuesa',
+  'oceano',
+  'lima',
+  'amatista',
+  'esmeralda',
+  'custom',
 ];
+
+const CUSTOM_THEME_CSS_VARS = [
+  '--app-accent',
+  '--app-accent-fill',
+  '--app-accent-fg',
+  '--app-accent-soft',
+  '--app-accent-glow',
+  '--muscle-loaded-stroke',
+  '--muscle-recovering-stroke',
+  '--muscle-recovering-text',
+  '--bug-led-text',
+] as const;
+
+export function normalizeHexColor(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const cleaned = raw.trim().replace(/^#/, '');
+  if (/^[0-9a-fA-F]{3}$/.test(cleaned)) {
+    const [r, g, b] = cleaned.toLowerCase().split('');
+    return `#${r}${r}${g}${g}${b}${b}`;
+  }
+  if (/^[0-9a-fA-F]{6}$/.test(cleaned)) {
+    return `#${cleaned.toLowerCase()}`;
+  }
+  return null;
+}
+
+function parseHexToRgb(hex: string): [number, number, number] {
+  const clean = hex.slice(1);
+  return [
+    Number.parseInt(clean.slice(0, 2), 16),
+    Number.parseInt(clean.slice(2, 4), 16),
+    Number.parseInt(clean.slice(4, 6), 16),
+  ];
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  const clampByte = (n: number) => Math.max(0, Math.min(255, Math.round(n)));
+  return `#${[clampByte(r), clampByte(g), clampByte(b)]
+    .map((v) => v.toString(16).padStart(2, '0'))
+    .join('')}`;
+}
+
+function mixRgbTowards(
+  base: [number, number, number],
+  target: [number, number, number],
+  weight: number
+): string {
+  const w = Math.max(0, Math.min(1, weight));
+  return rgbToHex(
+    base[0] + (target[0] - base[0]) * w,
+    base[1] + (target[1] - base[1]) * w,
+    base[2] + (target[2] - base[2]) * w
+  );
+}
+
+export function getHexRelativeLuminance(hex?: string): number {
+  const normalized = normalizeHexColor(hex);
+  if (!normalized) return 0.5;
+  const [r, g, b] = parseHexToRgb(normalized).map((v) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+export function setCustomDraftSwatchProperty(rawHex: string | null): void {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  const valid = normalizeHexColor(rawHex);
+  if (valid) {
+    root.style.setProperty('--custom-draft-swatch-color', valid);
+  } else {
+    root.style.removeProperty('--custom-draft-swatch-color');
+  }
+}
 
 function isValidAccentPalette(value: unknown): value is AccentPaletteId {
   return (
@@ -77,48 +158,96 @@ function isValidAppTab(value: unknown): value is AppTab {
 export function applyThemeToDocument(
   mode: ThemeMode,
   palette: AccentPaletteId,
-  language: AppLanguage = 'es'
+  language: AppLanguage = 'es',
+  customAccentHex?: string
 ): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
   const isLight = mode === 'light';
+  const validCustomHex = normalizeHexColor(customAccentHex);
+  const effectivePalette: AccentPaletteId =
+    palette === 'custom' && !validCustomHex ? 'ambar' : palette;
 
   root.dataset.themeMode = mode;
-  root.dataset.palette = palette;
+  root.dataset.palette = effectivePalette;
   root.lang = language;
   root.classList.toggle('dark', !isLight);
 
+  if (validCustomHex) {
+    root.style.setProperty('--custom-swatch-color', validCustomHex);
+  } else {
+    root.style.removeProperty('--custom-swatch-color');
+  }
+
+  if (effectivePalette === 'custom' && validCustomHex) {
+    const rgb = parseHexToRgb(validCustomHex);
+    const lum = getHexRelativeLuminance(validCustomHex);
+
+    const accentText = isLight
+      ? lum > 0.72
+        ? mixRgbTowards(rgb, [12, 13, 16], 0.5)
+        : lum > 0.48
+        ? mixRgbTowards(rgb, [12, 13, 16], 0.25)
+        : validCustomHex
+      : lum < 0.08
+      ? mixRgbTowards(rgb, [255, 255, 255], 0.46)
+      : lum < 0.16
+      ? mixRgbTowards(rgb, [255, 255, 255], 0.24)
+      : validCustomHex;
+
+    const accentFg = lum > 0.36 ? '#08080a' : '#ffffff';
+    const accentSoft =
+      !isLight && lum < 0.05
+        ? 'rgba(255, 255, 255, 0.1)'
+        : isLight && lum > 0.94
+        ? 'rgba(12, 13, 16, 0.09)'
+        : `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${isLight ? 0.14 : 0.15})`;
+    const accentGlow =
+      !isLight && lum < 0.05
+        ? 'rgba(255, 255, 255, 0.28)'
+        : `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${isLight ? 0.28 : 0.38})`;
+
+    const muscleLoaded = isLight
+      ? lum > 0.78
+        ? mixRgbTowards(rgb, [12, 13, 16], 0.32)
+        : lum > 0.62
+        ? mixRgbTowards(rgb, [12, 13, 16], 0.16)
+        : validCustomHex
+      : lum < 0.08
+      ? mixRgbTowards(rgb, [255, 255, 255], 0.36)
+      : validCustomHex;
+
+    const loadedRgb = parseHexToRgb(muscleLoaded);
+    const muscleRecovering = isLight
+      ? lum < 0.12
+        ? mixRgbTowards(loadedRgb, [255, 255, 255], 0.32)
+        : mixRgbTowards(loadedRgb, [255, 255, 255], 0.44)
+      : lum > 0.85
+      ? mixRgbTowards(loadedRgb, [110, 118, 140], 0.38)
+      : mixRgbTowards(loadedRgb, [255, 255, 255], 0.48);
+
+    const muscleRecoveringText = isLight ? accentText : muscleRecovering;
+    const bugLedText =
+      lum < 0.14 ? mixRgbTowards(rgb, [255, 255, 255], 0.58) : validCustomHex;
+
+    root.style.setProperty('--app-accent', accentText);
+    root.style.setProperty('--app-accent-fill', validCustomHex);
+    root.style.setProperty('--app-accent-fg', accentFg);
+    root.style.setProperty('--app-accent-soft', accentSoft);
+    root.style.setProperty('--app-accent-glow', accentGlow);
+    root.style.setProperty('--muscle-loaded-stroke', muscleLoaded);
+    root.style.setProperty('--muscle-recovering-stroke', muscleRecovering);
+    root.style.setProperty('--muscle-recovering-text', muscleRecoveringText);
+    root.style.setProperty('--bug-led-text', bugLedText);
+  } else {
+    for (const cssVar of CUSTOM_THEME_CSS_VARS) {
+      root.style.removeProperty(cssVar);
+    }
+  }
+
   const metaTheme = document.querySelector('meta[name="theme-color"]');
   if (metaTheme) {
-    metaTheme.setAttribute('content', isLight ? '#f5f4ef' : '#0d0e0d');
-  }
-
-  // Cambiar dinámicamente el fondo del logo de la app (negro en modo oscuro, blanco en modo claro)
-  const faviconSvg =
-    document.getElementById('app-favicon-svg') ||
-    document.querySelector('link[rel="icon"][type="image/svg+xml"]');
-  if (faviconSvg) {
-    faviconSvg.setAttribute('href', isLight ? '/icon-light.svg' : '/icon-dark.svg');
-  }
-
-  const faviconPng =
-    document.getElementById('app-favicon-png') ||
-    document.querySelector('link[rel="alternate icon"][type="image/png"]');
-  if (faviconPng) {
-    faviconPng.setAttribute(
-      'href',
-      isLight ? '/pwa-light-192x192.png' : '/pwa-dark-192x192.png'
-    );
-  }
-
-  const appleTouchIcon =
-    document.getElementById('app-apple-touch-icon') ||
-    document.querySelector('link[rel="apple-touch-icon"]');
-  if (appleTouchIcon) {
-    appleTouchIcon.setAttribute(
-      'href',
-      isLight ? '/apple-touch-icon-light.png' : '/apple-touch-icon-dark.png'
-    );
+    metaTheme.setAttribute('content', isLight ? '#eeeeec' : '#08080a');
   }
 
   const manifestLink = document.querySelector('link[rel="manifest"]');
@@ -142,6 +271,13 @@ function sanitizeCustomTexts(raw: unknown): CustomTextsByLanguage {
     let hasEntries = false;
     for (const [k, v] of Object.entries(langMap as Record<string, unknown>)) {
       if (isValidUiTextKey(k) && typeof v === 'string' && v.trim() !== '') {
+        // Actualizar textos antiguos si quedaron con etiquetas previas
+        if (k === 'nav_training' && (v.trim() === 'Entrenamiento' || v.trim() === 'Training')) {
+          continue;
+        }
+        if (k === 'palette_coral' && (v.trim() === 'Rojo Nothing' || v.trim() === 'Nothing Red')) {
+          continue;
+        }
         cleanMap[k] = v;
         hasEntries = true;
       }
@@ -163,8 +299,7 @@ export function createInitialAppState(todayIso: string): AppPersistentState {
     settledInactiveDays: 0,
     stepGoal: 10_000,
     themeMode: 'dark',
-    accentPalette: 'lima',
-    seasonsEnabled: true,
+    accentPalette: 'ambar',
     language: 'es',
     hasSelectedInitialLanguage: false,
     customTexts: {},
@@ -248,7 +383,9 @@ function isIsoDateString(value: unknown): value is string {
 }
 
 function sanitizeCategory(value: unknown): RoutineCategory {
-  return value === 'Cardio' ? 'Cardio' : 'Fuerza';
+  if (value === 'Cardio') return 'Cardio';
+  if (value === 'Híbrida') return 'Híbrida';
+  return 'Fuerza';
 }
 
 function sanitizeRoutinesList(
@@ -276,6 +413,15 @@ function sanitizeRoutinesList(
         if (!ex || typeof ex !== 'object') continue;
         const exRec = ex as Partial<RoutineExercise>;
         if (typeof exRec.name !== 'string' || exRec.name.trim() === '') continue;
+        const legacySingleMuscle = (exRec as { muscleGroup?: unknown }).muscleGroup;
+        const rawExerciseMuscles = Array.isArray(exRec.muscleGroups)
+          ? exRec.muscleGroups
+          : isValidMuscleGroupId(legacySingleMuscle)
+          ? [legacySingleMuscle]
+          : [];
+        const exerciseMuscles = categorySupportsMuscles(category)
+          ? sanitizeMuscleGroups(rawExerciseMuscles)
+          : undefined;
         exercises.push({
           id:
             typeof exRec.id === 'string' && exRec.id.trim() !== ''
@@ -286,9 +432,17 @@ function sanitizeRoutinesList(
             typeof exRec.setsReps === 'string' && exRec.setsReps.trim() !== ''
               ? exRec.setsReps.trim().slice(0, 60)
               : '3 × 10',
+          ...(exerciseMuscles ? { muscleGroups: exerciseMuscles } : {}),
         });
       }
     }
+    const musclesFromExercises = exercises.flatMap((ex) => ex.muscleGroups ?? []);
+    const sanitizedMuscles = categorySupportsMuscles(category)
+      ? sanitizeMuscleGroups([
+          ...musclesFromExercises,
+          ...(Array.isArray(rec.muscleGroups) ? rec.muscleGroups : []),
+        ])
+      : undefined;
     const sanitizedRoutine: Routine = {
       id: rec.id,
       title,
@@ -296,6 +450,7 @@ function sanitizeRoutinesList(
       durationMin,
       xpReward: calculateRoutineBaseXp(category, durationMin, formulas),
       exercises,
+      ...(sanitizedMuscles ? { muscleGroups: sanitizedMuscles } : {}),
     };
     if (typeof rec.deletedAt === 'string' && rec.deletedAt.trim() !== '') {
       sanitizedRoutine.deletedAt = rec.deletedAt;
@@ -320,6 +475,15 @@ function sanitizeDaysByIso(rawDays: unknown): Record<string, DailyActivityRecord
         if (!cw || typeof cw !== 'object') continue;
         const w = cw as Partial<CompletedWorkout>;
         if (typeof w.id !== 'string' || w.id === '') continue;
+        const workoutCategory = sanitizeCategory(w.category);
+        const workoutMuscles =
+          categorySupportsMuscles(workoutCategory) && Array.isArray(w.muscleGroups)
+            ? sanitizeMuscleGroups(w.muscleGroups) ?? []
+            : undefined;
+        const completionRatio =
+          typeof w.completionRatio === 'number' && Number.isFinite(w.completionRatio)
+            ? Math.max(0, Math.min(1, w.completionRatio))
+            : undefined;
         completedWorkouts.push({
           id: w.id,
           routineId: typeof w.routineId === 'string' ? w.routineId : undefined,
@@ -327,7 +491,7 @@ function sanitizeDaysByIso(rawDays: unknown): Record<string, DailyActivityRecord
             typeof w.title === 'string' && w.title.trim() !== ''
               ? w.title.trim().slice(0, 120)
               : 'Rutina',
-          category: sanitizeCategory(w.category),
+          category: workoutCategory,
           durationMin:
             typeof w.durationMin === 'number' && Number.isFinite(w.durationMin)
               ? Math.max(1, Math.min(720, Math.round(w.durationMin)))
@@ -340,6 +504,8 @@ function sanitizeDaysByIso(rawDays: unknown): Record<string, DailyActivityRecord
             typeof w.timeLabel === 'string' && /^\d{1,2}:\d{2}$/.test(w.timeLabel)
               ? w.timeLabel
               : '12:00',
+          ...(workoutMuscles !== undefined ? { muscleGroups: workoutMuscles } : {}),
+          ...(completionRatio !== undefined ? { completionRatio } : {}),
         });
       }
     }
@@ -381,7 +547,6 @@ function sanitizeScheduleChanges(
   for (const [iso, count] of Object.entries(rawChanges as Record<string, unknown>)) {
     if (!isIsoDateString(iso) || typeof count !== 'number' || !Number.isFinite(count)) continue;
     const rounded = Math.max(0, Math.floor(count));
-    // Conservar el contador de hoy o cualquier día histórico que haya superado 3 cambios
     if (iso === todayIso || rounded > 3) {
       result[iso] = rounded;
     }
@@ -410,6 +575,10 @@ function sanitizeFormulas(rawFormulas?: Partial<XpFormulas>): XpFormulas {
       typeof rawFormulas?.cardioFormula === 'string' && rawFormulas.cardioFormula.trim() !== ''
         ? rawFormulas.cardioFormula
         : DEFAULT_XP_FORMULAS.cardioFormula,
+    hybridFormula:
+      typeof rawFormulas?.hybridFormula === 'string' && rawFormulas.hybridFormula.trim() !== ''
+        ? rawFormulas.hybridFormula
+        : DEFAULT_XP_FORMULAS.hybridFormula,
   };
 }
 
@@ -468,11 +637,15 @@ export function hydrateSanitizedAppState(
         ? Math.min(200_000, Math.round(parsed.stepGoal))
         : 10_000,
     themeMode: parsed.themeMode === 'light' ? 'light' : 'dark',
-    accentPalette: isValidAccentPalette(parsed.accentPalette)
-      ? parsed.accentPalette
-      : 'lima',
-    seasonsEnabled:
-      typeof parsed.seasonsEnabled === 'boolean' ? parsed.seasonsEnabled : true,
+    accentPalette: (() => {
+      const customHex = normalizeHexColor(parsed.customAccentHex);
+      if (!isValidAccentPalette(parsed.accentPalette)) return 'ambar';
+      if (parsed.accentPalette === 'custom' && !customHex) return 'ambar';
+      return parsed.accentPalette;
+    })(),
+    ...(normalizeHexColor(parsed.customAccentHex)
+      ? { customAccentHex: normalizeHexColor(parsed.customAccentHex)! }
+      : {}),
     language: parsed.language === 'en' ? 'en' : 'es',
     hasSelectedInitialLanguage: parsed.hasSelectedInitialLanguage === true,
     customTexts: sanitizeCustomTexts(parsed.customTexts),
@@ -483,6 +656,13 @@ export function hydrateSanitizedAppState(
     dismissedRepeatWeeks: sanitizeDismissedWeeks(parsed.dismissedRepeatWeeks, todayIso),
     unlockedTrophies: sanitizeUnlockedTrophies(parsed.unlockedTrophies, todayIso),
     scheduleChangesByDateIso: sanitizeScheduleChanges(parsed.scheduleChangesByDateIso, todayIso),
+    ...(isIsoDateString(parsed.bugUnlockedAtIso)
+      ? { bugUnlockedAtIso: parsed.bugUnlockedAtIso }
+      : {}),
+    ...(isIsoDateString(parsed.bugHockeyUnlockedAtIso)
+      ? { bugHockeyUnlockedAtIso: parsed.bugHockeyUnlockedAtIso }
+      : {}),
+    ...(typeof parsed.hideBug === 'boolean' ? { hideBug: parsed.hideBug } : {}),
   };
 
   return reconcileDaysUntilToday(hydrated, todayIso);
@@ -491,8 +671,8 @@ export function hydrateSanitizedAppState(
 export function serializeAppStateBackup(state: AppPersistentState): string {
   return JSON.stringify(
     {
-      app: 'Brote',
-      version: '1.0.0',
+      app: 'Upgrade',
+      version: '2.0.0',
       exportedAt: new Date().toISOString(),
       state,
     },
@@ -515,7 +695,6 @@ export function parseAppStateBackup(
         ? (outerObj.state as Partial<AppPersistentState>)
         : (outerObj as Partial<AppPersistentState>);
 
-    // Verificar que al menos contenga claves reconocibles de estado de Brote
     const hasRecognizableShape =
       'daysByIso' in candidateState ||
       'routines' in candidateState ||
@@ -550,8 +729,6 @@ function migrateLegacyPreferencesWithZeroStats(todayIso: string): AppPersistentS
 
     const legacy = JSON.parse(legacyRaw) as {
       themeMode?: unknown;
-      colorPalette?: unknown;
-      seasonsEnabled?: unknown;
       stepGoal?: unknown;
       xpFormulas?: Partial<XpFormulas>;
       routineTemplates?: Routine[];
@@ -575,9 +752,7 @@ function migrateLegacyPreferencesWithZeroStats(todayIso: string): AppPersistentS
     const migratedZeroStats: AppPersistentState = {
       ...fresh,
       themeMode: legacy.themeMode === 'light' ? 'light' : 'dark',
-      accentPalette: isValidAccentPalette(legacy.colorPalette) ? legacy.colorPalette : 'lima',
-      seasonsEnabled:
-        typeof legacy.seasonsEnabled === 'boolean' ? legacy.seasonsEnabled : true,
+      accentPalette: 'ambar',
       stepGoal:
         typeof legacy.stepGoal === 'number' && legacy.stepGoal >= 500
           ? Math.min(200_000, legacy.stepGoal)
@@ -598,40 +773,71 @@ export function loadAppStateFromStorage(): AppPersistentState {
   const todayIso = getTodayDateIso();
   if (typeof window === 'undefined') {
     const initial = createInitialAppState(todayIso);
-    applyThemeToDocument(initial.themeMode, initial.accentPalette, initial.language);
+    applyThemeToDocument(
+      initial.themeMode,
+      initial.accentPalette,
+      initial.language,
+      initial.customAccentHex
+    );
     return initial;
   }
 
   try {
     let raw = window.localStorage.getItem(APP_STATE_STORAGE_KEY);
+    let migratedFromPreviousBrand = false;
+
     if (!raw) {
-      const prevKinetixRaw = window.localStorage.getItem(PREVIOUS_KINETIX_STATE_KEY);
-      if (prevKinetixRaw) {
-        raw = prevKinetixRaw;
-        window.localStorage.setItem(APP_STATE_STORAGE_KEY, prevKinetixRaw);
-        window.localStorage.removeItem(PREVIOUS_KINETIX_STATE_KEY);
+      const prevRaw =
+        window.localStorage.getItem(PREVIOUS_BROTE_STATE_KEY) ||
+        window.localStorage.getItem(PREVIOUS_KINETIX_STATE_KEY);
+      if (prevRaw) {
+        raw = prevRaw;
+        migratedFromPreviousBrand = true;
       }
-    } else {
-      window.localStorage.removeItem(PREVIOUS_KINETIX_STATE_KEY);
     }
+
+    window.localStorage.removeItem(PREVIOUS_BROTE_STATE_KEY);
+    window.localStorage.removeItem(PREVIOUS_KINETIX_STATE_KEY);
 
     if (!raw) {
       const resetState = migrateLegacyPreferencesWithZeroStats(todayIso);
-      applyThemeToDocument(resetState.themeMode, resetState.accentPalette, resetState.language);
+      applyThemeToDocument(
+        resetState.themeMode,
+        resetState.accentPalette,
+        resetState.language,
+        resetState.customAccentHex
+      );
       return resetState;
     }
 
-    // Limpiar posibles restos antiguos si existieran
     window.localStorage.removeItem(LEGACY_STATE_KEY);
     window.localStorage.removeItem(LEGACY_SESSION_KEY);
 
     const parsed = JSON.parse(raw) as Partial<AppPersistentState>;
+    if (migratedFromPreviousBrand && parsed.accentPalette === 'lima') {
+      parsed.accentPalette = 'ambar';
+    }
+
     const reconciled = hydrateSanitizedAppState(parsed, todayIso);
-    applyThemeToDocument(reconciled.themeMode, reconciled.accentPalette, reconciled.language);
+    if (migratedFromPreviousBrand) {
+      window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(reconciled));
+    }
+
+    applyThemeToDocument(
+      reconciled.themeMode,
+      reconciled.accentPalette,
+      reconciled.language,
+      reconciled.customAccentHex
+    );
     return reconciled;
   } catch {
     const fallback = createInitialAppState(todayIso);
-    applyThemeToDocument(fallback.themeMode, fallback.accentPalette, fallback.language);
+    applyThemeToDocument(
+      fallback.themeMode,
+      fallback.accentPalette,
+      fallback.language,
+      fallback.customAccentHex
+    );
     return fallback;
   }
 }
@@ -647,6 +853,7 @@ export function createDefaultWorkoutSession(): HydratedWorkoutSession {
     isSessionViewOpen: false,
     sessionOriginTab: AppTab.TRAINING,
     checkedExercises: {},
+    repCounter: 0,
     clockMode: WorkoutClockMode.STOPWATCH,
     stopwatchAccumMs: 0,
     stopwatchStartMs: null,
@@ -664,15 +871,17 @@ export function loadWorkoutSessionFromStorage(routines: Routine[]): HydratedWork
   try {
     let raw = window.localStorage.getItem(WORKOUT_SESSION_STORAGE_KEY);
     if (!raw) {
-      const prevSessionRaw = window.localStorage.getItem(PREVIOUS_KINETIX_SESSION_KEY);
+      const prevSessionRaw =
+        window.localStorage.getItem(PREVIOUS_BROTE_SESSION_KEY) ||
+        window.localStorage.getItem(PREVIOUS_KINETIX_SESSION_KEY);
       if (prevSessionRaw) {
         raw = prevSessionRaw;
         window.localStorage.setItem(WORKOUT_SESSION_STORAGE_KEY, prevSessionRaw);
-        window.localStorage.removeItem(PREVIOUS_KINETIX_SESSION_KEY);
       }
-    } else {
-      window.localStorage.removeItem(PREVIOUS_KINETIX_SESSION_KEY);
     }
+    window.localStorage.removeItem(PREVIOUS_BROTE_SESSION_KEY);
+    window.localStorage.removeItem(PREVIOUS_KINETIX_SESSION_KEY);
+
     if (!raw) return fallback;
 
     const parsed = JSON.parse(raw) as Partial<ActiveWorkoutSessionState>;
@@ -755,6 +964,14 @@ export function loadWorkoutSessionFromStorage(routines: Routine[]): HydratedWork
         : parsed.activeTab
       : AppTab.PROFILE;
 
+    const repCounter =
+      validRoutineId &&
+      typeof parsed.repCounter === 'number' &&
+      Number.isFinite(parsed.repCounter) &&
+      parsed.repCounter >= 0
+        ? Math.min(99, Math.floor(parsed.repCounter))
+        : 0;
+
     return {
       activeTab,
       sessionRoutineId: validRoutineId,
@@ -763,6 +980,7 @@ export function loadWorkoutSessionFromStorage(routines: Routine[]): HydratedWork
         ? parsed.sessionOriginTab
         : AppTab.TRAINING,
       checkedExercises,
+      repCounter,
       clockMode:
         parsed.clockMode === WorkoutClockMode.COUNTDOWN
           ? WorkoutClockMode.COUNTDOWN

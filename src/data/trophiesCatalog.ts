@@ -1,5 +1,5 @@
 /**
- * Catálogo completo de los 31 trofeos de Brote (Bronce, Plata, Oro, Platino y Platino Diamante)
+ * Catálogo completo de los 31 trofeos de Upgrade (Bronce, Plata, Oro, Platino y Platino Diamante)
  * y evaluador en tiempo real de nuevos logros desbloqueados.
  */
 
@@ -16,11 +16,15 @@ export interface TrophyTierVisualStyle {
   label: string;
   labelEn: string;
   iconTextClass: string;
-  badgeClass: string;
+  ledActiveClass: string;
   emblemFrameClass: string;
-  cardSurfaceClass: string;
+  emblemSheenAnimClass: string | null;
+  emblemSheenBeamClass: string;
   cardBorderClass: string;
+  topAccentLineClass: string | null;
+  sheenTrackAnimClass: string | null;
   sheenBarClass: string | null;
+  sheenWidthClass: string;
 }
 
 export const TROPHY_TIER_STYLES: Record<TrophyTier, TrophyTierVisualStyle> = {
@@ -28,78 +32,84 @@ export const TROPHY_TIER_STYLES: Record<TrophyTier, TrophyTierVisualStyle> = {
     qualityRank: 1,
     label: 'Bronce',
     labelEn: 'Bronze',
-    iconTextClass: 'text-amber-700 dark:text-amber-500',
-    badgeClass:
-      'bg-amber-500/15 text-amber-800 border border-amber-600/35 dark:bg-amber-600/20 dark:text-amber-400 dark:border-amber-500/35',
-    emblemFrameClass:
-      'bg-gradient-to-br from-amber-100 via-stone-100 to-amber-200/70 border border-amber-500/45 dark:from-amber-950/80 dark:via-elevated dark:to-stone-900 dark:border-amber-600/40',
-    cardSurfaceClass:
-      'bg-gradient-to-br from-amber-50/90 via-surface to-orange-50/60 dark:from-elevated/90 dark:via-surface dark:to-amber-950/20',
-    cardBorderClass: 'border-amber-500/45 dark:border-amber-600/40',
+    iconTextClass: 'text-[#8c4622] dark:text-[#d4875e]',
+    ledActiveClass: 'bg-[#b35c32] dark:bg-[#d4875e]',
+    emblemFrameClass: 'border border-[#b35c32]/45 dark:border-[#c8754b]/45',
+    emblemSheenAnimClass: null,
+    emblemSheenBeamClass: '',
+    cardBorderClass: 'border-[#b35c32]/40 dark:border-[#c8754b]/40',
+    topAccentLineClass: null,
+    sheenTrackAnimClass: null,
     sheenBarClass: null,
+    sheenWidthClass: '',
   },
   plata: {
     qualityRank: 2,
     label: 'Plata',
     labelEn: 'Silver',
-    iconTextClass: 'text-slate-600 dark:text-slate-200',
-    badgeClass:
-      'bg-slate-500/15 text-slate-700 border border-slate-400/50 dark:bg-slate-300/15 dark:text-slate-200 dark:border-slate-300/40',
-    emblemFrameClass:
-      'bg-gradient-to-br from-slate-100 via-white to-slate-200 border border-slate-400/55 shadow-[0_0_12px_rgba(100,116,139,0.14)] dark:from-slate-700/60 dark:via-elevated dark:to-slate-900 dark:border-slate-300/45 dark:shadow-[0_0_12px_rgba(226,232,240,0.12)]',
-    cardSurfaceClass:
-      'bg-gradient-to-br from-slate-100/90 via-surface to-slate-50 dark:from-slate-800/45 dark:via-surface dark:to-slate-900/80',
-    cardBorderClass:
-      'border-slate-400/55 shadow-[0_0_14px_rgba(148,163,184,0.12)] dark:border-slate-300/45 dark:shadow-[0_0_14px_rgba(203,213,225,0.08)]',
-    sheenBarClass: null,
+    iconTextClass: 'text-[#475569] dark:text-[#cbd5e1]',
+    ledActiveClass: 'bg-[#64748b] dark:bg-[#e2e8f0]',
+    emblemFrameClass: 'border border-[#64748b]/50 dark:border-[#cbd5e1]/50 trophy-glow-plata',
+    emblemSheenAnimClass: 'animate-emblem-sheen-plata',
+    emblemSheenBeamClass: 'w-4 bg-gradient-to-r from-transparent via-white/20 to-transparent',
+    cardBorderClass: 'border-[#64748b]/45 dark:border-[#cbd5e1]/45',
+    topAccentLineClass:
+      'bg-gradient-to-r from-transparent via-[#64748b]/40 dark:via-[#cbd5e1]/45 to-transparent',
+    sheenTrackAnimClass: 'animate-trophy-sheen-plata',
+    sheenBarClass:
+      'bg-gradient-to-r from-transparent via-[#94a3b8]/12 dark:via-[#e2e8f0]/14 to-transparent',
+    sheenWidthClass: 'w-20',
   },
   oro: {
     qualityRank: 3,
     label: 'Oro',
     labelEn: 'Gold',
-    iconTextClass: 'text-amber-600 dark:text-yellow-300',
-    badgeClass:
-      'bg-yellow-500/20 text-amber-800 border border-amber-500/50 dark:bg-yellow-400/20 dark:text-yellow-300 dark:border-yellow-400/50',
-    emblemFrameClass:
-      'bg-gradient-to-br from-amber-100 via-yellow-50 to-amber-200/80 border border-amber-400/70 shadow-[0_0_18px_rgba(245,158,11,0.22)] dark:from-yellow-900/65 dark:via-amber-950/70 dark:to-elevated dark:border-yellow-400/60 dark:shadow-[0_0_18px_rgba(250,204,21,0.22)]',
-    cardSurfaceClass:
-      'bg-gradient-to-br from-amber-50/95 via-surface to-yellow-50/80 dark:from-yellow-950/35 dark:via-surface dark:to-amber-950/25',
-    cardBorderClass:
-      'border-amber-400/65 shadow-[0_0_20px_rgba(245,158,11,0.14)] dark:border-yellow-400/55 dark:shadow-[0_0_20px_rgba(250,204,21,0.14)]',
+    iconTextClass: 'text-[#a16800] dark:text-[#f5c438]',
+    ledActiveClass: 'bg-[#d99000] dark:bg-[#f5c438]',
+    emblemFrameClass: 'border border-[#d99000]/60 dark:border-[#eab308]/70 trophy-glow-oro',
+    emblemSheenAnimClass: 'animate-emblem-sheen-oro',
+    emblemSheenBeamClass: 'w-5 bg-gradient-to-r from-transparent via-[#fef08a]/28 to-transparent',
+    cardBorderClass: 'border-[#d99000]/55 dark:border-[#eab308]/60',
+    topAccentLineClass:
+      'bg-gradient-to-r from-transparent via-[#d99000]/65 dark:via-[#f5c438]/75 to-transparent',
+    sheenTrackAnimClass: 'animate-trophy-sheen-oro',
     sheenBarClass:
-      'bg-gradient-to-r from-transparent via-amber-400/16 dark:via-yellow-300/12 to-transparent',
+      'bg-gradient-to-r from-transparent via-[#f5b427]/16 dark:via-[#fde047]/18 to-transparent',
+    sheenWidthClass: 'w-28',
   },
   platino: {
     qualityRank: 4,
     label: 'Platino',
     labelEn: 'Platinum',
-    iconTextClass: 'text-sky-600 dark:text-sky-300',
-    badgeClass:
-      'bg-sky-500/15 text-sky-800 border border-sky-500/45 dark:bg-sky-400/20 dark:text-sky-200 dark:border-sky-300/60',
-    emblemFrameClass:
-      'bg-gradient-to-br from-sky-100 via-indigo-50 to-sky-200/80 border border-sky-400/70 shadow-[0_0_22px_rgba(14,165,233,0.24)] dark:from-sky-900/75 dark:via-indigo-950/75 dark:to-elevated dark:border-sky-300/70 dark:shadow-[0_0_22px_rgba(56,189,248,0.32)]',
-    cardSurfaceClass:
-      'bg-gradient-to-br from-sky-50/95 via-surface to-indigo-50/80 dark:from-sky-950/45 dark:via-surface dark:to-indigo-950/35',
-    cardBorderClass:
-      'border-sky-400/65 shadow-[0_0_24px_rgba(14,165,233,0.18)] dark:border-sky-300/65 dark:shadow-[0_0_24px_rgba(56,189,248,0.2)]',
+    iconTextClass: 'text-[#0369a1] dark:text-[#7dd3fc]',
+    ledActiveClass: 'bg-[#0284c7] dark:bg-[#7dd3fc]',
+    emblemFrameClass: 'border border-[#0284c7]/60 dark:border-[#7dd3fc]/75 trophy-glow-platino',
+    emblemSheenAnimClass: 'animate-emblem-sheen-platino',
+    emblemSheenBeamClass: 'w-6 bg-gradient-to-r from-transparent via-[#e0f2fe]/38 to-transparent',
+    cardBorderClass: 'border-[#0284c7]/55 dark:border-[#7dd3fc]/65',
+    topAccentLineClass:
+      'bg-gradient-to-r from-transparent via-[#0284c7]/75 dark:via-[#7dd3fc]/85 to-transparent',
+    sheenTrackAnimClass: 'animate-trophy-sheen-platino',
     sheenBarClass:
-      'bg-gradient-to-r from-transparent via-sky-400/18 dark:via-sky-200/18 to-transparent',
+      'bg-gradient-to-r from-transparent via-[#38bdf8]/16 dark:via-[#7dd3fc]/22 to-transparent',
+    sheenWidthClass: 'w-36',
   },
   diamante: {
     qualityRank: 5,
     label: 'Platino Diamante',
     labelEn: 'Diamond Platinum',
-    iconTextClass: 'text-fuchsia-600 dark:text-fuchsia-200',
-    badgeClass:
-      'bg-gradient-to-r from-fuchsia-500/20 via-sky-500/20 to-amber-400/20 text-fuchsia-900 border border-fuchsia-400/65 dark:from-fuchsia-500/25 dark:via-sky-400/25 dark:to-amber-300/25 dark:text-fuchsia-100 dark:border-fuchsia-300/70',
-    emblemFrameClass:
-      'bg-gradient-to-br from-fuchsia-100 via-indigo-50 to-sky-100 border border-fuchsia-400/75 shadow-[0_0_28px_rgba(217,70,239,0.28)] dark:from-fuchsia-950/85 dark:via-indigo-950/85 dark:to-sky-950/85 dark:border-fuchsia-300/80 dark:shadow-[0_0_28px_rgba(232,121,249,0.42)]',
-    cardSurfaceClass:
-      'bg-gradient-to-br from-fuchsia-50/95 via-indigo-50/90 to-sky-50/95 dark:from-fuchsia-950/45 dark:via-indigo-950/40 dark:to-sky-950/45',
-    cardBorderClass:
-      'border-fuchsia-400/70 shadow-[0_0_30px_rgba(217,70,239,0.2)] dark:border-fuchsia-300/75 dark:shadow-[0_0_30px_rgba(232,121,249,0.28)]',
+    iconTextClass: 'text-[#4338ca] dark:text-[#a5b4fc]',
+    ledActiveClass: 'bg-[#4f46e5] dark:bg-[#818cf8]',
+    emblemFrameClass: 'border border-[#4f46e5]/65 dark:border-[#818cf8]/85 trophy-glow-diamante',
+    emblemSheenAnimClass: 'animate-emblem-sheen-diamante',
+    emblemSheenBeamClass: 'w-7 bg-gradient-to-r from-transparent via-white/45 to-transparent',
+    cardBorderClass: 'border-[#4f46e5]/60 dark:border-[#818cf8]/75',
+    topAccentLineClass:
+      'bg-gradient-to-r from-[#38bdf8]/80 via-[#818cf8] to-[#38bdf8]/80',
+    sheenTrackAnimClass: 'animate-trophy-sheen-diamante',
     sheenBarClass:
-      'bg-gradient-to-r from-transparent via-fuchsia-400/20 dark:via-fuchsia-200/22 to-transparent',
+      'bg-gradient-to-r from-transparent via-[#6366f1]/16 dark:via-[#a5b4fc]/26 to-transparent',
+    sheenWidthClass: 'w-44',
   },
 };
 

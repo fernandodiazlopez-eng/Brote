@@ -1,9 +1,9 @@
 /**
  * Vista principal de Perfil:
- * - Cabecera centrada con Nivel actual, botón de información y botón de ajustes.
- * - Escenario botánico del Árbol de Nivel + barra de progreso de XP.
+ * - Cabecera minimalista con accesos directos a información del sistema y ajustes.
+ * - Módulo central de Nivel, mapa de recuperación muscular y matriz LED segmentada de XP.
  * - Agenda semanal en calendario real (con soporte de arrastrar/copiar rutinas y vista de próxima semana en fin de semana).
- * - Rueda interactiva de pasos diarios (DailyStepsDial).
+ * - Cronógrafo interactivo de pasos diarios (DailyStepsDial).
  */
 
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
@@ -13,6 +13,7 @@ import {
   AccentPaletteId,
   CompletedWorkout,
   DailyActivityRecord,
+  MuscleGroupId,
   Routine,
   ThemeMode,
   WeekDayInfo,
@@ -25,9 +26,11 @@ import {
   getMondayDateIso,
   getWeekdayIndexMondayFirst,
 } from '../utils/calendarDates';
+import { getHexRelativeLuminance } from '../utils/localStorageState';
 import { DailyStepsDial } from './DailyStepsDial';
+import { BugGlobalMood } from './BugCompanion';
+import { MuscleRecoveryMap } from './MuscleRecoveryMap';
 import { PointsSystemInfoModal, ProfileSettingsModal } from './ProfileModals';
-import { TreeStage } from './TreeStage';
 
 interface ProfileViewProps {
   todayIso: string;
@@ -36,8 +39,6 @@ interface ProfileViewProps {
   totalXp: number;
   levelMinXp: number;
   nextLevelXp: number;
-  treeGrowthLevel: number;
-  treeWitherProgress: number;
   xpPulseToken: number;
   lastXpGain: number;
   stepGoal: number;
@@ -46,12 +47,14 @@ interface ProfileViewProps {
   onChangeThemeMode: (mode: ThemeMode) => void;
   accentPalette: AccentPaletteId;
   onChangeAccentPalette: (palette: AccentPaletteId) => void;
-  seasonsEnabled: boolean;
-  onChangeSeasonsEnabled: (enabled: boolean) => void;
+  customAccentHex?: string;
+  onApplyCustomAccentHex: (hex: string) => void;
   xpFormulas: XpFormulas;
   onUpdateXpFormulas: (nextFormulas: XpFormulas) => void;
   daysByIso: Record<string, DailyActivityRecord>;
   routines: Routine[];
+  trashedRoutines: Routine[];
+  activeSessionMuscles?: MuscleGroupId[];
   selectedDateIso: string;
   onSelectDate: (dateIso: string) => void;
   dismissedRepeatWeeks: string[];
@@ -66,6 +69,13 @@ interface ProfileViewProps {
   onStartRoutineFromProfile: (routineId: string) => void;
   onExportBackup: () => void;
   onImportBackupJson: (rawText: string) => boolean;
+  isBugUnlocked?: boolean;
+  hideBug?: boolean;
+  onChangeHideBug?: (hide: boolean) => void;
+  showBug?: boolean;
+  bugMood?: BugGlobalMood;
+  canPetBug?: boolean;
+  canLaunchBugHockey?: boolean;
 }
 
 interface RoutineTransferDragState {
@@ -76,6 +86,9 @@ interface RoutineTransferDragState {
   sourceDateIso: string;
 }
 
+const LED_SEGMENT_COUNT = 40;
+const LED_SEGMENT_INDICES = Array.from({ length: LED_SEGMENT_COUNT }, (_, i) => i);
+
 let lastConsumedBarPulseToken = 0;
 
 export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
@@ -85,8 +98,6 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
   totalXp,
   levelMinXp,
   nextLevelXp,
-  treeGrowthLevel,
-  treeWitherProgress,
   xpPulseToken,
   lastXpGain,
   stepGoal,
@@ -95,12 +106,14 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
   onChangeThemeMode,
   accentPalette,
   onChangeAccentPalette,
-  seasonsEnabled,
-  onChangeSeasonsEnabled,
+  customAccentHex,
+  onApplyCustomAccentHex,
   xpFormulas,
   onUpdateXpFormulas,
   daysByIso,
   routines,
+  trashedRoutines,
+  activeSessionMuscles,
   selectedDateIso,
   onSelectDate,
   dismissedRepeatWeeks,
@@ -115,6 +128,13 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
   onStartRoutineFromProfile,
   onExportBackup,
   onImportBackupJson,
+  isBugUnlocked = false,
+  hideBug = false,
+  onChangeHideBug,
+  showBug = false,
+  bugMood = 'none',
+  canPetBug = false,
+  canLaunchBugHockey = false,
 }) => {
   const { locale, t, formatCategory } = useI18n();
 
@@ -403,10 +423,13 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
     }
   };
 
-  // Barra de Nivel
+  // Cálculo de la Matriz LED de Nivel (40 segmentos estilo Nothing Glyph × Cyberpunk)
   const xpBracketSpan = Math.max(1, nextLevelXp - levelMinXp);
   const xpEarnedInBracket = Math.max(0, totalXp - levelMinXp);
   const xpFillRatio = level >= maxLevel ? 1 : Math.min(1, xpEarnedInBracket / xpBracketSpan);
+  const exactLitSegments = xpFillRatio * LED_SEGMENT_COUNT;
+  const fullLitSegments = Math.floor(exactLitSegments);
+  const partialSegmentOpacity = exactLitSegments - fullLitSegments;
   const xpBarSvgWidth =
     level >= maxLevel
       ? 400
@@ -432,55 +455,55 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
   };
 
   return (
-    <div className={`space-y-6 ${isDraggingPointer ? 'select-none touch-none' : ''}`}>
-      {/* 1. ESCENARIO DEL ÁRBOL DE NIVEL + BARRA DE XP */}
-      <section className="max-w-2xl mx-auto pb-5 border-b border-subtle">
-        <div className="flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => setIsPointsInfoOpen(true)}
-            aria-label={t.info_title}
-            className="btn-quiet min-h-[40px] min-w-[40px] flex items-center justify-center shrink-0"
-          >
-            <Info className="w-4 h-4" />
-          </button>
+    <div className={`space-y-5 ${isDraggingPointer ? 'select-none touch-none' : ''}`}>
+      {/* 1. ACCESOS RÁPIDOS SUPERIORES SIN RECUADRO (INFO IZQUIERDA · AJUSTES DERECHA) */}
+      <header className="flex items-center justify-between -mb-2">
+        <button
+          type="button"
+          onClick={() => setIsPointsInfoOpen(true)}
+          aria-label={t.info_title}
+          className="min-h-[36px] min-w-[36px] -ml-1.5 flex items-center justify-center text-fg-secondary hover:text-fg active:scale-95 transition cursor-pointer focus-visible:outline-none focus-visible:text-accent"
+        >
+          <Info className="w-[18px] h-[18px]" />
+        </button>
 
-          <div className="flex-1 min-w-0 text-center">
-            <span className="font-display text-base font-bold text-fg tracking-tight">
-              {t.profile_level_prefix} {level}
-            </span>
-          </div>
+        <button
+          type="button"
+          onClick={() => setIsSettingsOpen(true)}
+          aria-label={t.settings_title}
+          className="min-h-[36px] min-w-[36px] -mr-1.5 flex items-center justify-center text-fg-secondary hover:text-fg active:scale-95 transition cursor-pointer focus-visible:outline-none focus-visible:text-accent"
+        >
+          <Settings className="w-[18px] h-[18px]" />
+        </button>
+      </header>
 
-          <button
-            type="button"
-            onClick={() => setIsSettingsOpen(true)}
-            aria-label={t.settings_title}
-            className="btn-quiet min-h-[40px] min-w-[40px] flex items-center justify-center shrink-0"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-        </div>
+      {/* 2. MÓDULO DE NIVEL + ESQUEMA + BARRA DE NIVELES + XP CENTRADO */}
+      <section className="sheet-panel ndot-surface px-4 py-3.5 sm:px-5 sm:py-4 flex flex-col gap-2.5">
+        <h1 className="font-display text-xl sm:text-2xl font-bold leading-none tracking-wide text-fg text-center tabular-nums">
+          {t.profile_level_prefix} {level}
+        </h1>
 
-        <TreeStage
+        <MuscleRecoveryMap
           todayIso={todayIso}
-          level={level}
-          growthStage={treeGrowthLevel}
-          witherProgress={treeWitherProgress}
-          xpPulseToken={xpPulseToken}
-          lastXpGain={lastXpGain}
-          themeMode={themeMode}
-          seasonsEnabled={seasonsEnabled}
+          daysByIso={daysByIso}
+          routines={routines}
+          trashedRoutines={trashedRoutines}
+          activeSessionMuscles={activeSessionMuscles}
+          showBug={showBug}
+          bugMood={bugMood}
+          canPetBug={canPetBug}
+          canLaunchBugHockey={canLaunchBugHockey}
         />
 
-        <div className="pt-1 space-y-1">
+        <div className="space-y-1.5">
           <div className="flex items-center gap-3 w-full min-w-0">
-            <span className="font-mono text-xs font-bold text-fg tabular-nums min-w-[22px] text-left shrink-0">
+            <span className="font-mono text-xs font-bold text-fg tabular-nums min-w-[24px] text-left shrink-0">
               {level}
             </span>
 
             <div
               key={isXpBarPulsing ? `xp-track-${activeBarPulseKey}` : 'xp-track-idle'}
-              className={`relative flex-1 min-w-0 h-1.5 rounded-full bg-elevated overflow-hidden ${
+              className={`relative flex-1 min-w-0 h-4 ${
                 isXpBarPulsing ? 'animate-xp-bar-pulse' : ''
               }`}
               role="progressbar"
@@ -490,29 +513,63 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
               aria-label={t.profile_xp_unit}
             >
               <svg
-                viewBox="0 0 400 6"
+                viewBox="0 0 400 16"
                 preserveAspectRatio="none"
                 className="block w-full h-full"
               >
                 <defs>
                   <clipPath id={xpBarClipId}>
-                    <rect x={0} y={0} width={xpBarSvgWidth} height={6} />
+                    <rect x={0} y={0} width={xpBarSvgWidth} height={16} />
                   </clipPath>
                   <linearGradient id={xpBarShimmerGradId} x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#ffffff" stopOpacity="0" />
-                    <stop offset="50%" stopColor="#ffffff" stopOpacity="0.88" />
-                    <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+                    {(() => {
+                      const useDarkShimmer =
+                        (themeMode === 'dark' && accentPalette === 'monocromo') ||
+                        (accentPalette === 'custom' &&
+                          getHexRelativeLuminance(customAccentHex) > 0.72);
+                      const shimmerColor = useDarkShimmer ? '#08080a' : '#ffffff';
+                      const midOpacity = useDarkShimmer ? '0.45' : '0.85';
+                      return (
+                        <>
+                          <stop offset="0%" stopColor={shimmerColor} stopOpacity="0" />
+                          <stop offset="50%" stopColor={shimmerColor} stopOpacity={midOpacity} />
+                          <stop offset="100%" stopColor={shimmerColor} stopOpacity="0" />
+                        </>
+                      );
+                    })()}
                   </linearGradient>
                 </defs>
 
-                <rect
-                  x={0}
-                  y={0}
-                  width={xpBarSvgWidth}
-                  height={6}
-                  fill="currentColor"
-                  className="text-accent transition-all duration-500"
-                />
+                {LED_SEGMENT_INDICES.map((segIdx) => {
+                  const segX = segIdx * 10 + 1;
+                  const isFull = segIdx < fullLitSegments;
+                  const isPartial =
+                    !isFull && segIdx === fullLitSegments && partialSegmentOpacity > 0.04;
+
+                  return (
+                    <g key={segIdx}>
+                      <rect
+                        x={segX}
+                        y={1}
+                        width={8}
+                        height={14}
+                        rx={1}
+                        fill="var(--app-elevated)"
+                      />
+                      {(isFull || isPartial) && (
+                        <rect
+                          x={segX}
+                          y={1}
+                          width={8}
+                          height={14}
+                          rx={1}
+                          fill="var(--app-accent-fill)"
+                          fillOpacity={isFull ? 1 : Math.max(0.35, partialSegmentOpacity)}
+                        />
+                      )}
+                    </g>
+                  );
+                })}
 
                 {isXpBarPulsing && xpBarSvgWidth > 0 && (
                   <g clipPath={`url(#${xpBarClipId})`}>
@@ -520,7 +577,7 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
                       x={0}
                       y={0}
                       width={110}
-                      height={6}
+                      height={16}
                       fill={`url(#${xpBarShimmerGradId})`}
                       className="animate-xp-bar-sweep"
                     />
@@ -529,29 +586,39 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
               </svg>
             </div>
 
-            <span className="font-mono text-xs text-fg-muted tabular-nums min-w-[22px] text-right shrink-0">
+            <span className="font-mono text-xs text-fg-muted tabular-nums min-w-[24px] text-right shrink-0">
               {nextLevel}
             </span>
           </div>
 
-          <p className="text-center leading-none">
-            <span
+          <div className="flex items-center justify-center gap-2 text-center">
+            <p
               key={isXpBarPulsing ? `xp-txt-${activeBarPulseKey}` : 'xp-txt-idle'}
-              className={`inline-block font-mono text-[10px] tabular-nums transition-colors duration-300 ${
+              className={`font-mono text-[11px] tabular-nums transition-colors duration-300 ${
                 isXpBarPulsing
                   ? 'text-accent font-bold animate-xp-counter-pop'
-                  : 'text-fg-muted'
+                  : 'text-fg-secondary'
               }`}
             >
-              {totalXp.toLocaleString(locale)} / {nextLevelXp.toLocaleString(locale)}{' '}
-              {t.profile_xp_unit}
-            </span>
-          </p>
+              {totalXp.toLocaleString(locale)}{' '}
+              <span className="text-fg-muted">
+                / {nextLevelXp.toLocaleString(locale)} {t.profile_xp_unit}
+              </span>
+            </p>
+            {isXpBarPulsing && lastXpGain > 0 && (
+              <span
+                key={`xp-gain-${activeBarPulseKey}`}
+                className="font-mono text-[11px] font-bold text-accent tabular-nums animate-xp-counter-pop"
+              >
+                +{lastXpGain.toLocaleString(locale)} {t.profile_xp_unit}
+              </span>
+            )}
+          </div>
         </div>
       </section>
 
-      {/* 2. AGENDA SEMANAL + RUEDA DE PASOS */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      {/* 4. AGENDA SEMANAL + CRONÓGRAFO DE PASOS */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         <section className="lg:col-span-7 sheet-panel p-4 sm:p-5 space-y-4">
           {isWeekend && (
             <div
@@ -563,7 +630,7 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
                 type="button"
                 data-week-switch="current"
                 onClick={() => switchDisplayedWeek(false)}
-                className={`seg-btn min-h-[36px] px-3 py-1 text-xs whitespace-nowrap ${
+                className={`seg-btn min-h-[36px] px-3 py-1 text-xs uppercase whitespace-nowrap ${
                   !viewingNextWeek ? 'seg-btn-active' : ''
                 }`}
               >
@@ -573,7 +640,7 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
                 type="button"
                 data-week-switch="next"
                 onClick={() => switchDisplayedWeek(true)}
-                className={`seg-btn min-h-[36px] px-3 py-1 text-xs whitespace-nowrap ${
+                className={`seg-btn min-h-[36px] px-3 py-1 text-xs uppercase whitespace-nowrap ${
                   viewingNextWeek ? 'seg-btn-active' : ''
                 }`}
               >
@@ -583,9 +650,11 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
           )}
 
           <div className="flex items-center justify-between gap-3 min-h-[40px]">
-            <div className="flex items-baseline gap-2 min-w-0">
-              <h2 className="text-lg font-bold text-fg truncate">{selectedDayInfo.dayName}</h2>
-              <span className="font-mono text-xs text-fg-muted tabular-nums shrink-0">
+            <div className="flex items-baseline gap-2.5 min-w-0">
+              <h2 className="text-lg font-bold uppercase tracking-wide text-fg truncate">
+                {selectedDayInfo.dayName}
+              </h2>
+              <span className="font-mono text-xs text-fg-muted uppercase tabular-nums shrink-0">
                 {selectedDayInfo.dayOfMonth} {selectedDayInfo.monthShort}
               </span>
             </div>
@@ -659,22 +728,24 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
                     setSelectedCompletedLogId(null);
                     onSelectDate(day.dateIso);
                   }}
-                  className={`min-h-[56px] py-1.5 px-1 rounded-lg border flex flex-col items-center justify-center transition cursor-pointer ${
+                  className={`min-h-[58px] py-1.5 px-1 rounded-[4px] border flex flex-col items-center justify-center transition cursor-pointer ${
                     isHoveredDropTarget
-                      ? 'bg-accent text-accent-fg border-accent font-bold'
+                      ? 'bg-accent-fill text-accent-fg border-accent-fill font-bold'
                       : routineTransfer && isPast
                       ? 'border-transparent text-fg-muted opacity-35 cursor-not-allowed'
                       : isValidDropTarget
-                      ? 'bg-elevated/60 text-fg border-accent/60'
+                      ? 'bg-elevated/70 text-fg border-accent-fill'
                       : isSelected
-                      ? 'bg-accent text-accent-fg border-transparent font-bold'
+                      ? 'bg-accent-fill text-accent-fg border-transparent font-bold'
                       : isToday
-                      ? 'bg-canvas text-fg border-subtle'
-                      : 'border-transparent text-fg-secondary hover:bg-elevated/60 hover:text-fg'
+                      ? 'bg-canvas text-fg border-strong'
+                      : 'bg-canvas/50 border-subtle text-fg-secondary hover:bg-elevated hover:text-fg'
                   }`}
                 >
-                  <span className="text-[11px] font-medium">{day.shortLabel}</span>
-                  <span className="text-xs font-mono font-semibold tabular-nums mt-0.5">
+                  <span className="font-display text-[11px] uppercase tracking-wider font-semibold">
+                    {day.shortLabel}
+                  </span>
+                  <span className="text-xs font-mono font-bold tabular-nums mt-0.5">
                     {isToday ? t.profile_today_badge : day.dayOfMonth}
                   </span>
                   <span
@@ -686,7 +757,7 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
                         : 'text-fg-muted'
                     }`}
                   >
-                    {hasCompleted ? '✓' : !isPast && hasPlanned ? '•' : '–'}
+                    {hasCompleted ? '✓' : !isPast && hasPlanned ? '▪' : '–'}
                   </span>
                 </button>
               );
@@ -694,7 +765,7 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
           </div>
 
           {routineTransfer && (
-            <div className="py-2 px-3 rounded-lg bg-accent-soft border border-accent/40 flex items-center justify-between gap-2 text-xs">
+            <div className="py-2 px-3 rounded-[4px] bg-accent-soft border border-accent-fill flex items-center justify-between gap-2 text-xs">
               <span className="font-semibold text-fg truncate">
                 {routineTransfer.mode === 'copy'
                   ? `${t.profile_copy_prefix} «${routineTransfer.title}» ${t.profile_copy_suffix}`
@@ -772,7 +843,9 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
             {isSelectedToday && (
               <>
                 <div className="space-y-1">
-                  <p className="text-xs font-medium text-fg-muted">{t.profile_completed_today}</p>
+                  <p className="font-display text-[11px] font-bold uppercase tracking-wider text-fg-muted">
+                    {t.profile_completed_today}
+                  </p>
                   {selectedDayRecord.completedWorkouts.length === 0 ? (
                     <p className="py-1.5 text-xs text-fg-muted">{t.profile_none_yet}</p>
                   ) : (
@@ -867,7 +940,7 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
 
                 {scheduledRoutines.length > 0 && (
                   <div className="pt-2 border-t border-subtle space-y-1">
-                    <p className="text-xs font-medium text-fg-muted">
+                    <p className="font-display text-[11px] font-bold uppercase tracking-wider text-fg-muted">
                       {t.profile_scheduled_heading}
                     </p>
                     <div className="divide-y divide-subtle">
@@ -1030,18 +1103,21 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
         onChangeThemeMode={onChangeThemeMode}
         accentPalette={accentPalette}
         onChangeAccentPalette={onChangeAccentPalette}
-        seasonsEnabled={seasonsEnabled}
-        onChangeSeasonsEnabled={onChangeSeasonsEnabled}
+        customAccentHex={customAccentHex}
+        onApplyCustomAccentHex={onApplyCustomAccentHex}
         xpFormulas={xpFormulas}
         onUpdateXpFormulas={onUpdateXpFormulas}
         onExportBackup={onExportBackup}
         onImportBackupJson={onImportBackupJson}
+        isBugUnlocked={isBugUnlocked}
+        hideBug={hideBug}
+        onChangeHideBug={onChangeHideBug}
       />
 
       {/* Modal para asignar o quitar rutinas del día seleccionado */}
       {canModifySchedule && isScheduleModalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/65 backdrop-blur-sm p-0 sm:p-4"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm p-0 sm:p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="schedule-modal-heading"
@@ -1051,10 +1127,13 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
             }
           }}
         >
-          <div className="w-full max-w-md max-h-[85vh] overflow-y-auto modal-sheet rounded-t-2xl sm:rounded-xl p-5 sm:p-6 safe-bottom-modal">
+          <div className="w-full max-w-md max-h-[85vh] overflow-y-auto modal-sheet sheet-panel rounded-t-xl sm:rounded-md p-5 sm:p-6 safe-bottom-modal">
             <div className="w-9 h-1 bg-elevated rounded-full mx-auto mb-4 sm:hidden" />
             <div className="flex items-center justify-between gap-4 pb-2 border-b border-subtle">
-              <h3 id="schedule-modal-heading" className="text-base font-bold text-fg">
+              <h3
+                id="schedule-modal-heading"
+                className="text-base font-bold uppercase tracking-wide text-fg"
+              >
                 {selectedDayInfo.dayName} {selectedDayInfo.dayOfMonth} {selectedDayInfo.monthShort}
               </h3>
               <button

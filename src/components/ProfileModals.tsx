@@ -1,9 +1,9 @@
 /**
  * Ventanas modales de Perfil:
- * 1) Información detallada del sistema de puntos, descanso, memoria muscular y marchitamiento.
- * 2) Ajustes (Idioma ES/EN, Modo Claro/Oscuro, 6 Paletas de color, Estaciones del año)
- *    + Ajustes Avanzados (Fórmulas de XP y Editor individual de todos los textos de la app,
- *      excluyendo los logros para evitar spoilers).
+ * 1) Información detallada del sistema de puntos, descanso y memoria muscular.
+ * 2) Ajustes (Idioma ES/EN, Modo Claro/Oscuro, 6 Paletas de color e Instalación PWA)
+ *    + Ajustes Avanzados (Fórmulas de XP, Editor individual de todos los textos de la app
+ *      excluyendo los logros para evitar spoilers, y Copias de Seguridad JSON).
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -13,7 +13,6 @@ import {
   ChevronRight,
   Download,
   Globe,
-  Leaf,
   Moon,
   Palette,
   RotateCcw,
@@ -30,15 +29,20 @@ import { useI18n } from '../i18n/I18nContext';
 import { UI_TEXT_SECTIONS, UiTextFieldMeta, UiTextKey } from '../i18n/translations';
 import { AccentPaletteId, ThemeMode, XpFormulas } from '../types';
 import {
+  normalizeHexColor,
+  setCustomDraftSwatchProperty,
+} from '../utils/localStorageState';
+import {
   areDefaultXpFormulas,
   getDefaultXpFormulas,
   isDefaultCardioFormula,
+  isDefaultHybridFormula,
   isDefaultStepsFormula,
   isDefaultStrengthFormula,
   localizeXpFormulasIfDefault,
 } from '../utils/progressionRules';
 import { validateXpFormula } from '../utils/xpFormulaParser';
-import { BroteLogo } from './BroteLogo';
+import { BugPixelGraphic } from './BugCompanion';
 
 interface PointsSystemInfoModalProps {
   isOpen: boolean;
@@ -66,7 +70,7 @@ export const PointsSystemInfoModal: React.FC<PointsSystemInfoModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="points-info-heading"
@@ -76,9 +80,12 @@ export const PointsSystemInfoModal: React.FC<PointsSystemInfoModalProps> = ({
         }
       }}
     >
-      <div className="w-full max-w-md max-h-[85vh] overflow-y-auto modal-sheet rounded-xl p-5 sm:p-6">
+      <div className="w-full max-w-md max-h-[85vh] overflow-y-auto modal-sheet sheet-panel rounded-md p-5 sm:p-6">
         <div className="flex items-center justify-between gap-4 pb-3 border-b border-subtle">
-          <h3 id="points-info-heading" className="text-base font-bold text-fg truncate">
+          <h3
+            id="points-info-heading"
+            className="text-base font-bold uppercase tracking-wide text-fg truncate"
+          >
             {t.info_title}
           </h3>
           <button
@@ -183,7 +190,7 @@ const CustomTextFieldRow: React.FC<CustomTextFieldRowProps> = React.memo(({
           onBlur={handleBlur}
           placeholder={defaultValue}
           className={`input-field w-full px-3 py-2 text-xs leading-relaxed resize-y ${
-            isModified ? 'border-accent/60' : ''
+            isModified ? 'border-accent' : ''
           }`}
         />
       ) : (
@@ -195,7 +202,7 @@ const CustomTextFieldRow: React.FC<CustomTextFieldRowProps> = React.memo(({
           onBlur={handleBlur}
           placeholder={defaultValue}
           className={`input-field w-full min-h-[38px] px-3 py-1.5 text-xs ${
-            isModified ? 'border-accent/60' : ''
+            isModified ? 'border-accent' : ''
           }`}
         />
       )}
@@ -210,12 +217,15 @@ interface ProfileSettingsModalProps {
   onChangeThemeMode: (mode: ThemeMode) => void;
   accentPalette: AccentPaletteId;
   onChangeAccentPalette: (palette: AccentPaletteId) => void;
-  seasonsEnabled: boolean;
-  onChangeSeasonsEnabled: (enabled: boolean) => void;
+  customAccentHex?: string;
+  onApplyCustomAccentHex: (hex: string) => void;
   xpFormulas: XpFormulas;
   onUpdateXpFormulas: (nextFormulas: XpFormulas) => void;
   onExportBackup: () => void;
   onImportBackupJson: (rawText: string) => boolean;
+  isBugUnlocked?: boolean;
+  hideBug?: boolean;
+  onChangeHideBug?: (hide: boolean) => void;
 }
 
 export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
@@ -225,12 +235,15 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   onChangeThemeMode,
   accentPalette,
   onChangeAccentPalette,
-  seasonsEnabled,
-  onChangeSeasonsEnabled,
+  customAccentHex,
+  onApplyCustomAccentHex,
   xpFormulas,
   onUpdateXpFormulas,
   onExportBackup,
   onImportBackupJson,
+  isBugUnlocked = false,
+  hideBug = false,
+  onChangeHideBug,
 }) => {
   const {
     language,
@@ -251,6 +264,12 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const [textSearchQuery, setTextSearchQuery] = useState('');
   const [backupFeedback, setBackupFeedback] = useState<'success' | 'error' | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const colorPickerInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [draftCustomHex, setDraftCustomHex] = useState<string>(() =>
+    (customAccentHex || '#f5b427').toUpperCase()
+  );
+  const [showCustomHexError, setShowCustomHexError] = useState(false);
 
   const localizedExternalFormulas = useMemo(
     () => localizeXpFormulasIfDefault(xpFormulas, language),
@@ -266,6 +285,9 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const [draftCardioFormula, setDraftCardioFormula] = useState(
     localizedExternalFormulas.cardioFormula
   );
+  const [draftHybridFormula, setDraftHybridFormula] = useState(
+    localizedExternalFormulas.hybridFormula
+  );
 
   useEffect(() => {
     if (isOpen) {
@@ -273,8 +295,15 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
       setTextSearchQuery('');
       setShowIOSInstallGuide(false);
       setBackupFeedback(null);
+      setShowCustomHexError(false);
+      setDraftCustomHex((customAccentHex || '#f5b427').toUpperCase());
     }
-  }, [isOpen]);
+  }, [isOpen, customAccentHex]);
+
+  useEffect(() => {
+    const validDraft = normalizeHexColor(draftCustomHex);
+    setCustomDraftSwatchProperty(validDraft || customAccentHex || '#f5b427');
+  }, [draftCustomHex, customAccentHex]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -296,6 +325,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
     setDraftStepsFormula(localizedExternalFormulas.stepsFormula);
     setDraftStrengthFormula(localizedExternalFormulas.strengthFormula);
     setDraftCardioFormula(localizedExternalFormulas.cardioFormula);
+    setDraftHybridFormula(localizedExternalFormulas.hybridFormula);
   }, [localizedExternalFormulas]);
 
   const stepsValidation = useMemo(
@@ -309,6 +339,10 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const cardioValidation = useMemo(
     () => validateXpFormula(draftCardioFormula, 'minutos', language),
     [draftCardioFormula, language]
+  );
+  const hybridValidation = useMemo(
+    () => validateXpFormula(draftHybridFormula, 'minutos', language),
+    [draftHybridFormula, language]
   );
 
   const modifiedCustomTextsCount = useMemo(
@@ -346,24 +380,67 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
 
   if (!isOpen) return null;
 
+  const monochromeLabel = themeMode === 'light' ? t.palette_negro : t.palette_blanco;
+
+  const normalizedCustomSaved = normalizeHexColor(customAccentHex);
+  const normalizedDraftCustomHex = normalizeHexColor(draftCustomHex);
+  const isCustomHexAlreadyActive =
+    accentPalette === 'custom' &&
+    Boolean(normalizedCustomSaved) &&
+    normalizedDraftCustomHex === normalizedCustomSaved;
+
   const accentPaletteOptions: {
     id: AccentPaletteId;
     label: string;
     swatchClass: string;
+    fullSpan?: boolean;
   }[] = [
-    { id: 'lima', label: t.palette_lima, swatchClass: 'palette-dot-lima' },
-    { id: 'esmeralda', label: t.palette_esmeralda, swatchClass: 'palette-dot-esmeralda' },
-    { id: 'oceano', label: t.palette_oceano, swatchClass: 'palette-dot-oceano' },
     { id: 'ambar', label: t.palette_ambar, swatchClass: 'palette-dot-ambar' },
-    { id: 'amatista', label: t.palette_amatista, swatchClass: 'palette-dot-amatista' },
     { id: 'coral', label: t.palette_coral, swatchClass: 'palette-dot-coral' },
+    { id: 'monocromo', label: monochromeLabel, swatchClass: 'palette-dot-monocromo' },
+    { id: 'frambuesa', label: t.palette_frambuesa, swatchClass: 'palette-dot-frambuesa' },
+    { id: 'oceano', label: t.palette_oceano, swatchClass: 'palette-dot-oceano' },
+    { id: 'lima', label: t.palette_lima, swatchClass: 'palette-dot-lima' },
+    { id: 'amatista', label: t.palette_amatista, swatchClass: 'palette-dot-amatista' },
+    { id: 'esmeralda', label: t.palette_esmeralda, swatchClass: 'palette-dot-esmeralda' },
+    ...(normalizedCustomSaved
+      ? [
+          {
+            id: 'custom' as const,
+            label: `${t.palette_custom} (${normalizedCustomSaved.toUpperCase()})`,
+            swatchClass: 'palette-dot-custom',
+            fullSpan: true,
+          },
+        ]
+      : []),
   ];
+
+  const handleCustomHexInputChange = (rawVal: string) => {
+    const cleaned = rawVal.replace(/[^#0-9a-fA-F]/g, '').slice(0, 7).toUpperCase();
+    setDraftCustomHex(cleaned);
+    if (showCustomHexError && normalizeHexColor(cleaned)) {
+      setShowCustomHexError(false);
+    }
+  };
+
+  const handleSubmitCustomHex = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const valid = normalizeHexColor(draftCustomHex);
+    if (!valid) {
+      setShowCustomHexError(true);
+      return;
+    }
+    setShowCustomHexError(false);
+    setDraftCustomHex(valid.toUpperCase());
+    onApplyCustomAccentHex(valid);
+  };
 
   const hasCustomFormulas =
     !areDefaultXpFormulas(xpFormulas) ||
     !isDefaultStepsFormula(draftStepsFormula) ||
     !isDefaultStrengthFormula(draftStrengthFormula) ||
-    !isDefaultCardioFormula(draftCardioFormula);
+    !isDefaultCardioFormula(draftCardioFormula) ||
+    !isDefaultHybridFormula(draftHybridFormula);
 
   const handleStepsFormulaChange = (value: string) => {
     setDraftStepsFormula(value);
@@ -386,11 +463,19 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
     }
   };
 
+  const handleHybridFormulaChange = (value: string) => {
+    setDraftHybridFormula(value);
+    if (validateXpFormula(value, 'minutos', language).valid) {
+      onUpdateXpFormulas({ ...xpFormulas, hybridFormula: value.trim() });
+    }
+  };
+
   const handleResetDefaultFormulas = () => {
     const defaultsForLang = getDefaultXpFormulas(language);
     setDraftStepsFormula(defaultsForLang.stepsFormula);
     setDraftStrengthFormula(defaultsForLang.strengthFormula);
     setDraftCardioFormula(defaultsForLang.cardioFormula);
+    setDraftHybridFormula(defaultsForLang.hybridFormula);
     onUpdateXpFormulas(defaultsForLang);
   };
 
@@ -424,7 +509,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="settings-modal-heading"
@@ -434,7 +519,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
         }
       }}
     >
-      <div className="w-full max-w-md max-h-[85vh] flex flex-col modal-sheet rounded-xl p-5 sm:p-6">
+      <div className="w-full max-w-md max-h-[85vh] flex flex-col modal-sheet sheet-panel rounded-md p-5 sm:p-6">
         <div className="flex items-center justify-between gap-3 pb-3 border-b border-subtle shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             {settingsSection !== 'main' && (
@@ -449,19 +534,27 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 <ArrowLeft className="w-4 h-4" />
               </button>
             )}
-            <h3 id="settings-modal-heading" className="text-base font-bold text-fg truncate">
+            <h3
+              id="settings-modal-heading"
+              className="text-base font-bold uppercase tracking-wide text-fg truncate"
+            >
               {modalTitle}
             </h3>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t.common_close}
-            className="btn-quiet min-h-[38px] min-w-[38px] flex items-center justify-center shrink-0"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2.5 shrink-0">
+            <span className="font-display text-xs font-bold uppercase tracking-[0.18em] text-accent select-none">
+              Upgrade
+            </span>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={t.common_close}
+              className="btn-quiet min-h-[38px] min-w-[38px] flex items-center justify-center shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* SECCIÓN PRINCIPAL DE AJUSTES */}
@@ -471,7 +564,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
             <div className="space-y-2">
               <div className="flex items-center gap-1.5">
                 <Globe className="w-3.5 h-3.5 text-fg-muted shrink-0" />
-                <p className="text-xs font-medium text-fg-secondary">
+                <p className="font-display text-xs font-semibold uppercase tracking-wider text-fg-secondary">
                   {t.settings_language_label}
                 </p>
               </div>
@@ -506,7 +599,9 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
 
             {/* Tema Claro / Oscuro */}
             <div className="space-y-2">
-              <p className="text-xs font-medium text-fg-secondary">{t.settings_style_label}</p>
+              <p className="font-display text-xs font-semibold uppercase tracking-wider text-fg-secondary">
+                {t.settings_style_label}
+              </p>
               <div
                 role="group"
                 aria-label={t.settings_style_label}
@@ -520,9 +615,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                     themeMode === 'light' ? 'seg-btn-active' : ''
                   }`}
                 >
-                  <Sun
-                    className={`w-4 h-4 shrink-0 ${themeMode === 'light' ? 'text-accent' : ''}`}
-                  />
+                  <Sun className="w-4 h-4 shrink-0" />
                   <span>{t.settings_theme_light}</span>
                 </button>
 
@@ -534,9 +627,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                     themeMode === 'dark' ? 'seg-btn-active' : ''
                   }`}
                 >
-                  <Moon
-                    className={`w-4 h-4 shrink-0 ${themeMode === 'dark' ? 'text-accent' : ''}`}
-                  />
+                  <Moon className="w-4 h-4 shrink-0" />
                   <span>{t.settings_theme_dark}</span>
                 </button>
               </div>
@@ -546,13 +637,15 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
             <div className="space-y-2">
               <div className="flex items-center gap-1.5">
                 <Palette className="w-3.5 h-3.5 text-fg-muted shrink-0" />
-                <p className="text-xs font-medium text-fg-secondary">{t.settings_palette_label}</p>
+                <p className="font-display text-xs font-semibold uppercase tracking-wider text-fg-secondary">
+                  {t.settings_palette_label}
+                </p>
               </div>
 
               <div
                 role="group"
                 aria-label={t.settings_palette_label}
-                className="grid grid-cols-2 sm:grid-cols-3 gap-2"
+                className="grid grid-cols-2 gap-2"
               >
                 {accentPaletteOptions.map((option) => {
                   const isSelected = accentPalette === option.id;
@@ -562,18 +655,20 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                       type="button"
                       onClick={() => onChangeAccentPalette(option.id)}
                       aria-pressed={isSelected}
-                      className={`min-h-[42px] px-3 py-2 rounded-lg border flex items-center justify-between gap-2 text-left transition cursor-pointer ${
+                      className={`min-h-[42px] px-3 py-2 rounded-[4px] border flex items-center justify-between gap-2 text-left transition cursor-pointer ${
+                        option.fullSpan ? 'col-span-2' : ''
+                      } ${
                         isSelected
-                          ? 'bg-accent-soft border-accent text-fg font-semibold'
+                          ? 'bg-accent-soft border-accent-fill text-fg font-semibold'
                           : 'bg-canvas border-subtle text-fg-secondary hover:text-fg'
                       }`}
                     >
                       <div className="flex items-center gap-2 min-w-0">
                         <span
                           aria-hidden="true"
-                          className={`w-3 h-3 rounded-full shrink-0 ${option.swatchClass}`}
+                          className={`w-3 h-3 rounded-[2px] shrink-0 ${option.swatchClass}`}
                         />
-                        <span className="text-xs truncate">{option.label}</span>
+                        <span className="font-display text-xs truncate">{option.label}</span>
                       </div>
                       {isSelected && <Check className="w-3.5 h-3.5 text-accent shrink-0" />}
                     </button>
@@ -582,47 +677,59 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               </div>
             </div>
 
-            {/* Estaciones del año */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-1.5">
-                <Leaf className="w-3.5 h-3.5 text-fg-muted shrink-0" />
-                <p className="text-xs font-medium text-fg-secondary">{t.settings_seasons_label}</p>
-              </div>
-              <div
-                role="group"
-                aria-label={t.settings_seasons_label}
-                className="seg-group grid grid-cols-2 gap-1"
-              >
-                <button
-                  type="button"
-                  onClick={() => onChangeSeasonsEnabled(true)}
-                  aria-pressed={seasonsEnabled}
-                  className={`seg-btn min-h-[40px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
-                    seasonsEnabled ? 'seg-btn-active' : ''
-                  }`}
-                >
-                  {t.settings_seasons_on}
-                </button>
+            {/* Visibilidad de Bug (aparece en Ajustes únicamente tras desbloquearlo en Nivel 10) */}
+            {isBugUnlocked && onChangeHideBug && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <svg
+                    viewBox="0 0 16 14"
+                    className="w-3.5 h-3 shrink-0"
+                    shapeRendering="crispEdges"
+                    aria-hidden="true"
+                  >
+                    <BugPixelGraphic expression="neutral" />
+                  </svg>
+                  <p className="font-display text-xs font-semibold uppercase tracking-wider text-fg-secondary">
+                    {t.settings_bug_label}
+                  </p>
+                </div>
 
-                <button
-                  type="button"
-                  onClick={() => onChangeSeasonsEnabled(false)}
-                  aria-pressed={!seasonsEnabled}
-                  className={`seg-btn min-h-[40px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
-                    !seasonsEnabled ? 'seg-btn-active' : ''
-                  }`}
+                <div
+                  role="group"
+                  aria-label={t.settings_bug_label}
+                  className="seg-group grid grid-cols-2 gap-1"
                 >
-                  {t.settings_seasons_off}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => onChangeHideBug(false)}
+                    aria-pressed={!hideBug}
+                    className={`seg-btn min-h-[40px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
+                      !hideBug ? 'seg-btn-active' : ''
+                    }`}
+                  >
+                    {t.settings_bug_show}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => onChangeHideBug(true)}
+                    aria-pressed={hideBug}
+                    className={`seg-btn min-h-[40px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
+                      hideBug ? 'seg-btn-active' : ''
+                    }`}
+                  >
+                    {t.settings_bug_hide}
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Instalación directa de PWA en móvil/escritorio (se oculta sola si ya está instalada) */}
             {!isInstalled && (isInstallable || isIOS) && (
               <div className="space-y-2 pt-1">
                 <div className="flex items-center gap-1.5">
                   <Smartphone className="w-3.5 h-3.5 text-fg-muted shrink-0" />
-                  <p className="text-xs font-medium text-fg-secondary">
+                  <p className="font-display text-xs font-semibold uppercase tracking-wider text-fg-secondary">
                     {t.settings_install_label}
                   </p>
                 </div>
@@ -651,7 +758,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                     </button>
 
                     {showIOSInstallGuide && (
-                      <div className="rounded-lg bg-canvas border border-subtle p-3 space-y-1 text-xs text-fg-secondary">
+                      <div className="rounded-[4px] bg-canvas border border-subtle p-3 space-y-1 text-xs text-fg-secondary">
                         <p className="font-semibold text-fg">{t.settings_ios_install_title}</p>
                         <p>{t.settings_ios_install_step1}</p>
                         <p>{t.settings_ios_install_step2}</p>
@@ -663,7 +770,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
             )}
 
             {/* Acceso a Ajustes Avanzados */}
-            <div className="pt-3 border-t border-subtle space-y-3">
+            <div className="pt-3 border-t border-subtle">
               <button
                 type="button"
                 onClick={() => {
@@ -673,27 +780,99 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 className="btn-secondary w-full min-h-[46px] px-3.5 py-2.5 flex items-center justify-between gap-3 text-left"
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <SlidersHorizontal className="w-4 h-4 text-fg-muted shrink-0" />
+                  <SlidersHorizontal className="w-4 h-4 text-accent shrink-0" />
                   <span className="text-sm font-semibold text-fg truncate">
                     {t.settings_advanced_btn}
                   </span>
                 </div>
                 <ChevronRight className="w-4 h-4 text-fg-muted shrink-0" />
               </button>
-
-              <div className="pt-1 flex items-center justify-center gap-2 select-none">
-                <BroteLogo themeMode={themeMode} className="w-6 h-6 shadow-xs" />
-                <p className="font-mono text-[11px] text-fg-muted">Brote v1.0</p>
-              </div>
             </div>
           </div>
         )}
 
-        {/* SECCIÓN DE AJUSTES AVANZADOS: FÓRMULAS + ACCESO A EDITOR DE TEXTOS */}
+        {/* SECCIÓN DE AJUSTES AVANZADOS: COLOR POR CÓDIGO HEX + FÓRMULAS + TEXTOS + COPIA */}
         {settingsSection === 'advanced' && (
           <div className="pt-4 space-y-5 overflow-y-auto pr-0.5">
-            <div className="space-y-3.5">
-              <p className="text-xs font-semibold text-fg-secondary">
+            {/* Color personalizado por código HEX */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <Palette className="w-3.5 h-3.5 text-accent shrink-0" />
+                <label
+                  htmlFor="custom-hex-color-input"
+                  className="font-display text-xs font-semibold uppercase tracking-wider text-fg-secondary"
+                >
+                  {t.advanced_custom_color_heading}
+                </label>
+              </div>
+
+              <form onSubmit={handleSubmitCustomHex} className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => colorPickerInputRef.current?.click()}
+                  aria-label={t.advanced_custom_color_heading}
+                  className="btn-secondary min-h-[42px] w-[42px] flex items-center justify-center shrink-0"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="w-5 h-5 rounded-[2px] palette-dot-custom-draft"
+                  />
+                </button>
+                <input
+                  ref={colorPickerInputRef}
+                  type="color"
+                  tabIndex={-1}
+                  aria-hidden="true"
+                  value={normalizedDraftCustomHex || normalizedCustomSaved || '#f5b427'}
+                  onChange={(e) => {
+                    const picked = normalizeHexColor(e.target.value);
+                    if (picked) {
+                      setShowCustomHexError(false);
+                      setDraftCustomHex(picked.toUpperCase());
+                      onApplyCustomAccentHex(picked);
+                    }
+                  }}
+                  className="sr-only"
+                />
+
+                <input
+                  id="custom-hex-color-input"
+                  type="text"
+                  spellCheck={false}
+                  autoCapitalize="characters"
+                  autoComplete="off"
+                  value={draftCustomHex}
+                  onChange={(e) => handleCustomHexInputChange(e.target.value)}
+                  placeholder={t.advanced_custom_color_placeholder}
+                  className={`input-field flex-1 min-w-0 min-h-[42px] px-3 py-2 font-mono text-xs uppercase tracking-wider ${
+                    showCustomHexError ? 'ring-1 ring-red-400/70' : ''
+                  }`}
+                />
+
+                <button
+                  type="submit"
+                  className={`min-h-[42px] px-3.5 py-2 text-xs flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 ${
+                    isCustomHexAlreadyActive ? 'btn-secondary text-accent' : 'btn-primary'
+                  }`}
+                >
+                  {isCustomHexAlreadyActive && <Check className="w-3.5 h-3.5 shrink-0" />}
+                  <span>
+                    {isCustomHexAlreadyActive
+                      ? t.advanced_custom_color_active_btn
+                      : t.advanced_custom_color_apply_btn}
+                  </span>
+                </button>
+              </form>
+
+              {showCustomHexError && (
+                <p role="alert" className="text-[11px] font-medium text-red-400">
+                  {t.advanced_custom_color_error}
+                </p>
+              )}
+            </div>
+
+            <div className="pt-4 border-t border-subtle space-y-3.5">
+              <p className="font-display text-xs font-semibold uppercase tracking-wider text-fg-secondary">
                 {t.advanced_formulas_heading}
               </p>
 
@@ -746,6 +925,30 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2 text-xs">
+                  <label htmlFor="formula-hybrid" className="font-semibold text-fg">
+                    {t.category_hybrid} (
+                    <span className="font-mono text-accent">{minutesVarHint}</span>)
+                  </label>
+                  <span className="font-mono tabular-nums text-[11px] text-fg-muted">
+                    {hybridValidation.valid
+                      ? `45 ${t.training_min_short} → +${hybridValidation.sampleXp} ${t.profile_xp_unit}`
+                      : hybridValidation.error}
+                  </span>
+                </div>
+                <input
+                  id="formula-hybrid"
+                  type="text"
+                  spellCheck={false}
+                  value={draftHybridFormula}
+                  onChange={(e) => handleHybridFormulaChange(e.target.value)}
+                  className={`input-field w-full min-h-[42px] px-3 py-2 font-mono text-xs ${
+                    hybridValidation.valid ? '' : 'ring-1 ring-red-400/70'
+                  }`}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-2 text-xs">
                   <label htmlFor="formula-cardio" className="font-semibold text-fg">
                     {t.category_cardio} (
                     <span className="font-mono text-accent">{minutesVarHint}</span>)
@@ -783,7 +986,9 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
             {/* Editor de todos los textos de la app (excepto logros) */}
             <div className="pt-4 border-t border-subtle space-y-2.5">
               <div>
-                <p className="text-xs font-semibold text-fg">{t.advanced_texts_heading}</p>
+                <p className="font-display text-xs font-semibold uppercase tracking-wider text-fg">
+                  {t.advanced_texts_heading}
+                </p>
                 <p className="text-[11px] text-fg-muted mt-0.5">{t.advanced_texts_subtitle}</p>
               </div>
 
@@ -812,7 +1017,9 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
             {/* Copia de seguridad local (Exportar / Importar JSON) */}
             <div className="pt-4 border-t border-subtle space-y-2.5">
               <div>
-                <p className="text-xs font-semibold text-fg">{t.advanced_backup_heading}</p>
+                <p className="font-display text-xs font-semibold uppercase tracking-wider text-fg">
+                  {t.advanced_backup_heading}
+                </p>
                 <p className="text-[11px] text-fg-muted mt-0.5">{t.advanced_backup_subtitle}</p>
               </div>
 
@@ -917,7 +1124,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                     language === 'en' ? section.titleEn : section.titleEs;
                   return (
                     <div key={section.id} className="space-y-1">
-                      <h4 className="text-xs font-bold text-accent pb-1 border-b border-subtle">
+                      <h4 className="font-display text-xs font-bold uppercase tracking-wider text-accent pb-1 border-b border-subtle">
                         {sectionHeading}
                       </h4>
                       <div className="divide-y divide-subtle">
