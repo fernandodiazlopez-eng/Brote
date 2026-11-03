@@ -23,12 +23,16 @@ export interface BugReactionContextValue {
   isAlarmRinging: boolean;
   trophyCelebrateToken: number;
   scrollTopHopToken: number;
+  tabTeleportToken: number;
+  muteBounceSound: boolean;
 }
 
 export const BugReactionContext = createContext<BugReactionContextValue>({
   isAlarmRinging: false,
   trophyCelebrateToken: 0,
   scrollTopHopToken: 0,
+  tabTeleportToken: 0,
+  muteBounceSound: false,
 });
 
 interface PixelSparkParticle {
@@ -143,29 +147,42 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
   canLaunchHockey,
   className = '',
 }) => {
-  const { isAlarmRinging, trophyCelebrateToken, scrollTopHopToken } =
-    useContext(BugReactionContext);
+  const {
+    isAlarmRinging,
+    trophyCelebrateToken,
+    scrollTopHopToken,
+    tabTeleportToken,
+    muteBounceSound,
+  } = useContext(BugReactionContext);
+
+  const muteBounceSoundRef = useRef(muteBounceSound);
+  muteBounceSoundRef.current = muteBounceSound;
 
   const [gazeOffset, setGazeOffset] = useState<{ x: -1 | 0 | 1; y: -1 | 0 | 1 }>(() =>
     gazeMode === 'down' ? { x: 0, y: 1 } : { x: 0, y: 0 }
   );
   const [isIdleBlinking, setIsIdleBlinking] = useState(false);
   const [localPetPhase, setLocalPetPhase] = useState<'none' | 'happy' | 'blink'>('none');
-  const [respawnKey, setRespawnKey] = useState(0);
+  const [teleportKey, setTeleportKey] = useState<number>(() => (tabTeleportToken > 0 ? 1 : 0));
+  const [isTeleportingIn, setIsTeleportingIn] = useState<boolean>(() => tabTeleportToken > 0);
 
   // Estados de saltos reactivos (logro desbloqueado / tope superior de la app)
   const [activeJumpAnim, setActiveJumpAnim] = useState<'none' | 'trophy' | 'top-hop'>('none');
   const [jumpAnimKey, setJumpAnimKey] = useState(0);
   const lastSeenTrophyTokenRef = useRef(trophyCelebrateToken);
   const lastSeenTopHopTokenRef = useRef(scrollTopHopToken);
+  const lastSeenTabTeleportRef = useRef(tabTeleportToken);
   const jumpTimerRef = useRef<number | null>(null);
+  const teleportInTimerRef = useRef<number | null>(null);
+  const returnTeleportTimerRef = useRef<number | null>(null);
 
   // Estado para modo Air Hockey (Nivel 5+)
-  const [hockeyMode, setHockeyMode] = useState<'idle' | 'grabbed' | 'flying'>('idle');
-  const hockeyModeRef = useRef<'idle' | 'grabbed' | 'flying'>('idle');
+  const [hockeyMode, setHockeyMode] = useState<'idle' | 'grabbed' | 'flying' | 'returning'>('idle');
+  const hockeyModeRef = useRef<'idle' | 'grabbed' | 'flying' | 'returning'>('idle');
   hockeyModeRef.current = hockeyMode;
 
   const [puckExpression, setPuckExpression] = useState<BugEyeExpression>('neutral');
+  const [returnSpot, setReturnSpot] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [viewportSize, setViewportSize] = useState<{ w: number; h: number }>(() => ({
     w: typeof window !== 'undefined' ? window.innerWidth : 390,
     h: typeof window !== 'undefined' ? window.innerHeight : 844,
@@ -269,6 +286,8 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
     return () => {
       if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
       if (jumpTimerRef.current !== null) window.clearTimeout(jumpTimerRef.current);
+      if (teleportInTimerRef.current !== null) window.clearTimeout(teleportInTimerRef.current);
+      if (returnTeleportTimerRef.current !== null) window.clearTimeout(returnTeleportTimerRef.current);
       if (petRafRef.current !== null) window.cancelAnimationFrame(petRafRef.current);
       if (flightRafRef.current !== null) window.cancelAnimationFrame(flightRafRef.current);
       petTimersRef.current.forEach((id) => window.clearTimeout(id));
@@ -364,6 +383,118 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
 
     emitLocalSparksBurst();
   }, [emitLocalSparksBurst]);
+
+  // Partículas verticales 8-bits de teletransporte al materializarse en su sitio
+  const emitTeleportParticles = useCallback(() => {
+    if (petRafRef.current !== null) {
+      window.cancelAnimationFrame(petRafRef.current);
+      petRafRef.current = null;
+    }
+
+    const columns = [-1, 2, 5, 8, 11, 14, 17];
+    const particles: PixelSparkParticle[] = columns.map((colX, idx) => ({
+      x: colX,
+      y: 12 - (idx % 3) * 3,
+      vx: (idx - 3) * 4,
+      vy: -(34 + (idx % 3) * 14),
+      life: 0,
+      maxLife: 0.34 + (idx % 2) * 0.07,
+      size: idx % 2 === 0 ? 1.8 : 1.4,
+    }));
+
+    let lastTs = performance.now();
+    const stepTeleportSparks = (now: number) => {
+      const dt = Math.min(0.04, Math.max(0.001, (now - lastTs) / 1000));
+      lastTs = now;
+
+      const group = petSparksGroupRef.current;
+      if (!group) return;
+      while (group.firstChild) {
+        group.removeChild(group.firstChild);
+      }
+
+      let aliveCount = 0;
+      for (const p of particles) {
+        p.life += dt;
+        if (p.life >= p.maxLife) continue;
+        aliveCount += 1;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+
+        const progress = p.life / p.maxLife;
+        const rect = document.createElementNS(SVG_NS, 'rect');
+        rect.setAttribute('x', (Math.round(p.x * 2) / 2).toFixed(1));
+        rect.setAttribute('y', (Math.round(p.y * 2) / 2).toFixed(1));
+        rect.setAttribute('width', p.size.toFixed(1));
+        rect.setAttribute('height', (p.size * 1.8).toFixed(1));
+        rect.setAttribute('fill', 'var(--app-accent-fill)');
+        rect.setAttribute('fill-opacity', (1 - progress * 0.88).toFixed(2));
+        group.appendChild(rect);
+      }
+
+      if (aliveCount > 0) {
+        petRafRef.current = window.requestAnimationFrame(stepTeleportSparks);
+      } else {
+        petRafRef.current = null;
+      }
+    };
+
+    petRafRef.current = window.requestAnimationFrame(stepTeleportSparks);
+  }, []);
+
+  const triggerTeleportArrival = useCallback(() => {
+    if (teleportInTimerRef.current !== null) {
+      window.clearTimeout(teleportInTimerRef.current);
+    }
+    setTeleportKey((k) => k + 1);
+    setIsTeleportingIn(true);
+    emitTeleportParticles();
+    teleportInTimerRef.current = window.setTimeout(() => {
+      setIsTeleportingIn(false);
+      teleportInTimerRef.current = null;
+    }, 360);
+  }, [emitTeleportParticles]);
+
+  const teleportBackFromPosition = useCallback(
+    (spotX: number, spotY: number) => {
+      if (returnTeleportTimerRef.current !== null) {
+        window.clearTimeout(returnTeleportTimerRef.current);
+      }
+      setViewportSize({ w: window.innerWidth, h: window.innerHeight });
+      setReturnSpot({ x: spotX, y: spotY });
+      hockeyModeRef.current = 'returning';
+      setHockeyMode('returning');
+
+      returnTeleportTimerRef.current = window.setTimeout(() => {
+        returnTeleportTimerRef.current = null;
+        hockeyModeRef.current = 'idle';
+        setHockeyMode('idle');
+        setPuckExpression('neutral');
+        triggerTeleportArrival();
+      }, 160);
+    },
+    [triggerTeleportArrival]
+  );
+
+  // Efecto de teletransporte al montar tras cambiar entre Rutinas, Perfil y Estadísticas
+  useEffect(() => {
+    if (tabTeleportToken <= 0) return;
+    emitTeleportParticles();
+    teleportInTimerRef.current = window.setTimeout(() => {
+      setIsTeleportingIn(false);
+      teleportInTimerRef.current = null;
+    }, 360);
+    // Solo al montar la instancia en la nueva pestaña
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // También si cambia de vista permaneciendo el mismo componente montado
+  useEffect(() => {
+    if (tabTeleportToken <= lastSeenTabTeleportRef.current) return;
+    lastSeenTabTeleportRef.current = tabTeleportToken;
+    if (hockeyModeRef.current !== 'idle') return;
+    triggerTeleportArrival();
+  }, [tabTeleportToken, triggerTeleportArrival]);
 
   // Reacción 1: Salto feliz cuando el usuario desbloquea un logro
   useEffect(() => {
@@ -567,11 +698,8 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
 
       const rawSpeed = Math.hypot(vx, vy);
       if (rawSpeed < 50) {
-        // Si se soltó completamente quieto sin lanzarlo, reaparece de inmediato en su sitio habitual
-        hockeyModeRef.current = 'idle';
-        setHockeyMode('idle');
-        setPuckExpression('neutral');
-        setRespawnKey((k) => k + 1);
+        // Si se soltó quieto sin lanzarlo, se teletransporta de vuelta a su sitio habitual
+        teleportBackFromPosition(puckPosRef.current.x, puckPosRef.current.y);
         return;
       }
 
@@ -602,7 +730,7 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
       window.removeEventListener('touchend', finishGrabAndLaunch);
       window.removeEventListener('touchcancel', finishGrabAndLaunch);
     };
-  }, [hockeyMode]);
+  }, [hockeyMode, teleportBackFromPosition]);
 
   // Bucle físico de disco Air Hockey (Nivel 5+)
   useEffect(() => {
@@ -654,7 +782,9 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
       const speedAfterBounce = Math.hypot(state.vx, state.vy);
 
       if (collided) {
-        playBugBounceSound(Math.min(1, speedAfterBounce / 1450));
+        if (!muteBounceSoundRef.current) {
+          playBugBounceSound(Math.min(1, speedAfterBounce / 1450));
+        }
         bounceHappyUntilRef.current = now + 280;
       }
 
@@ -720,10 +850,7 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
       if (remainingSpeed <= 15) {
         wallSparksRef.current = [];
         flightRafRef.current = null;
-        hockeyModeRef.current = 'idle';
-        setHockeyMode('idle');
-        setPuckExpression('neutral');
-        setRespawnKey((k) => k + 1);
+        teleportBackFromPosition(state.x, state.y);
         return;
       }
 
@@ -738,7 +865,7 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
         flightRafRef.current = null;
       }
     };
-  }, [hockeyMode, isAlarmRinging, spawnWallCollisionSparks]);
+  }, [hockeyMode, isAlarmRinging, spawnWallCollisionSparks, teleportBackFromPosition]);
 
   const clearPendingHold = () => {
     if (longPressTimerRef.current !== null) {
@@ -863,8 +990,8 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
     ? 'animate-bug-trophy-jump'
     : activeJumpAnim === 'top-hop'
     ? 'animate-bug-top-hop'
-    : respawnKey > 0
-    ? 'animate-bug-respawn'
+    : teleportKey > 0
+    ? 'animate-bug-teleport-in'
     : '';
 
   return (
@@ -901,16 +1028,27 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
           canPet || canLaunchHockey ? 'cursor-pointer' : 'cursor-default'
         } ${
           canLaunchHockey ? 'touch-none' : 'touch-manipulation'
-        } leading-none ${hockeyMode === 'flying' ? 'pointer-events-none' : ''} ${className}`}
+        } leading-none ${
+          hockeyMode === 'flying' || hockeyMode === 'returning' ? 'pointer-events-none' : ''
+        } ${className}`}
       >
         <svg
-          key={`${respawnKey}-${jumpAnimKey}-${isAlarmRinging ? 'alarm' : 'calm'}`}
+          key={`${teleportKey}-${jumpAnimKey}-${isAlarmRinging ? 'alarm' : 'calm'}`}
           viewBox="-10 -12 36 26"
           className={`w-[54px] h-[39px] -mx-[11px] -mt-[11px] block overflow-visible pointer-events-none ${
             isDetached ? 'opacity-0' : perchedMotionClass
           }`}
           shapeRendering="crispEdges"
         >
+          {/* Haz pixelado 8-bits de teletransporte al aparecer en su sitio */}
+          {!isDetached && isTeleportingIn && (
+            <g className="animate-bug-teleport-beam" fill="var(--app-accent-fill)">
+              <rect x={7} y={-12} width={2} height={26} fillOpacity={0.62} />
+              <rect x={4} y={-9} width={1} height={22} fillOpacity={0.38} />
+              <rect x={11} y={-9} width={1} height={22} fillOpacity={0.38} />
+              <rect x={1} y={13} width={14} height={1} fillOpacity={0.85} />
+            </g>
+          )}
           <BugPixelGraphic
             expression={resolvedExpression}
             gazeX={gazeOffset.x}
@@ -930,9 +1068,45 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
             aria-hidden="true"
           >
             <g ref={wallSparksGroupRef} />
-            <g ref={flyingPuckGroupRef}>
-              <BugPixelGraphic expression={puckExpression} gazeX={0} gazeY={0} isFullCircle />
-            </g>
+            {hockeyMode === 'returning' ? (
+              <g
+                transform={`translate(${Math.round(returnSpot.x - 16)} ${Math.round(
+                  returnSpot.y - 16
+                )}) scale(2)`}
+              >
+                <g className="animate-bug-teleport-out">
+                  <rect
+                    x={7}
+                    y={-8}
+                    width={2}
+                    height={26}
+                    fill="var(--app-accent-fill)"
+                    fillOpacity={0.68}
+                  />
+                  <rect
+                    x={4}
+                    y={-4}
+                    width={1}
+                    height={20}
+                    fill="var(--app-accent-fill)"
+                    fillOpacity={0.4}
+                  />
+                  <rect
+                    x={11}
+                    y={-4}
+                    width={1}
+                    height={20}
+                    fill="var(--app-accent-fill)"
+                    fillOpacity={0.4}
+                  />
+                  <BugPixelGraphic expression="happy" gazeX={0} gazeY={0} isFullCircle />
+                </g>
+              </g>
+            ) : (
+              <g ref={flyingPuckGroupRef}>
+                <BugPixelGraphic expression={puckExpression} gazeX={0} gazeY={0} isFullCircle />
+              </g>
+            )}
           </svg>,
           document.body
         )}

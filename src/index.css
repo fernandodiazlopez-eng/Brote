@@ -1322,23 +1322,81 @@
   animation: bugToastIn 6.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-@keyframes bugRespawnPop {
+@keyframes bugTeleportIn {
   0% {
     opacity: 0;
-    transform: scale(0.45);
+    transform: translate3d(0, -10px, 0) scale(0.14, 1.95);
+    filter: brightness(2.2) drop-shadow(0 0 8px var(--app-accent-fill));
   }
-  65% {
+  28% {
     opacity: 1;
-    transform: scale(1.08);
+    transform: translate3d(-1.5px, -2px, 0) scale(0.32, 1.55);
+    filter: brightness(1.85) drop-shadow(0 0 7px var(--app-accent-fill));
+  }
+  56% {
+    opacity: 1;
+    transform: translate3d(1.5px, 0.5px, 0) scale(1.22, 0.78);
+    filter: brightness(1.35) drop-shadow(0 0 4px var(--app-accent-fill));
+  }
+  78% {
+    opacity: 1;
+    transform: translate3d(0, -1px, 0) scale(0.95, 1.06);
+    filter: brightness(1.1);
   }
   100% {
     opacity: 1;
-    transform: scale(1);
+    transform: translate3d(0, 0, 0) scale(1, 1);
+    filter: none;
   }
 }
 
-.animate-bug-respawn {
-  animation: bugRespawnPop 210ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+.animate-bug-teleport-in {
+  transform-origin: center bottom;
+  animation: bugTeleportIn 350ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes bugTeleportBeam {
+  0% {
+    opacity: 0.98;
+    transform: scaleY(1.18) scaleX(1.1);
+  }
+  42% {
+    opacity: 0.78;
+    transform: scaleY(1) scaleX(0.72);
+  }
+  100% {
+    opacity: 0;
+    transform: scaleY(0.15) scaleX(0.18);
+  }
+}
+
+.animate-bug-teleport-beam {
+  transform-origin: 8px 14px;
+  animation: bugTeleportBeam 340ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes bugTeleportOut {
+  0% {
+    opacity: 1;
+    transform: scale(1, 1);
+    filter: brightness(1.4) drop-shadow(0 0 6px var(--app-accent-fill));
+  }
+  45% {
+    opacity: 0.95;
+    transform: translate3d(0, -4px, 0) scale(0.22, 1.85);
+    filter: brightness(2.2) drop-shadow(0 0 10px var(--app-accent-fill));
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -14px, 0) scale(0.06, 2.3);
+    filter: brightness(2.4);
+  }
+}
+
+.animate-bug-teleport-out {
+  transform-box: fill-box;
+  transform-origin: center center;
+  animation: bugTeleportOut 165ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 @keyframes bugTrophyJump {

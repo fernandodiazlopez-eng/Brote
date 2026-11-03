@@ -3,6 +3,7 @@
  * y reconciliación diaria al cambiar de fecha en el calendario real.
  */
 
+import { isBugDefaultPhraseKey } from '../data/bugCompanionData';
 import { isValidUiTextKey } from '../i18n/translations';
 import {
   AccentPaletteId,
@@ -10,7 +11,9 @@ import {
   AppLanguage,
   AppPersistentState,
   AppTab,
+  BugDialogueCategory,
   CompletedWorkout,
+  CustomBugPhrase,
   CustomTextsByLanguage,
   DailyActivityRecord,
   Routine,
@@ -292,6 +295,69 @@ function sanitizeCustomTexts(raw: unknown): CustomTextsByLanguage {
     }
   }
   return result;
+}
+
+function isValidBugCategory(value: unknown): value is BugDialogueCategory {
+  return value === 'streak' || value === 'inactive' || value === 'reaction';
+}
+
+function sanitizeDeletedBugPhraseKeys(
+  raw: unknown
+): Partial<Record<AppLanguage, string[]>> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const record = raw as Record<string, unknown>;
+  const result: Partial<Record<AppLanguage, string[]>> = {};
+  let hasAny = false;
+
+  for (const lang of ['es', 'en'] as const) {
+    const arr = record[lang];
+    if (!Array.isArray(arr)) continue;
+    const validKeys = Array.from(
+      new Set(arr.filter((k): k is string => typeof k === 'string' && isBugDefaultPhraseKey(k)))
+    );
+    if (validKeys.length > 0) {
+      result[lang] = validKeys;
+      hasAny = true;
+    }
+  }
+  return hasAny ? result : undefined;
+}
+
+function sanitizeCustomBugPhrases(
+  raw: unknown
+): Partial<Record<AppLanguage, CustomBugPhrase[]>> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const record = raw as Record<string, unknown>;
+  const result: Partial<Record<AppLanguage, CustomBugPhrase[]>> = {};
+  let hasAny = false;
+
+  for (const lang of ['es', 'en'] as const) {
+    const arr = record[lang];
+    if (!Array.isArray(arr)) continue;
+    const list: CustomBugPhrase[] = [];
+    for (const item of arr) {
+      if (!item || typeof item !== 'object') continue;
+      const candidate = item as Partial<CustomBugPhrase>;
+      if (
+        typeof candidate.id === 'string' &&
+        candidate.id.trim() !== '' &&
+        isValidBugCategory(candidate.category) &&
+        typeof candidate.text === 'string' &&
+        candidate.text.trim() !== ''
+      ) {
+        list.push({
+          id: candidate.id.trim(),
+          category: candidate.category,
+          text: candidate.text.trim().slice(0, 180),
+        });
+      }
+    }
+    if (list.length > 0) {
+      result[lang] = list;
+      hasAny = true;
+    }
+  }
+  return hasAny ? result : undefined;
 }
 
 export function createInitialAppState(todayIso: string): AppPersistentState {
@@ -727,6 +793,16 @@ export function hydrateSanitizedAppState(
       ? { bugHockeyUnlockedAtIso: resolvedBugHockeyUnlockedAtIso }
       : {}),
     ...(typeof parsed.hideBug === 'boolean' ? { hideBug: parsed.hideBug } : {}),
+    ...(typeof parsed.muteBugText === 'boolean' ? { muteBugText: parsed.muteBugText } : {}),
+    ...(typeof parsed.muteBugBounceSound === 'boolean'
+      ? { muteBugBounceSound: parsed.muteBugBounceSound }
+      : {}),
+    ...(sanitizeDeletedBugPhraseKeys(parsed.deletedBugPhraseKeys)
+      ? { deletedBugPhraseKeys: sanitizeDeletedBugPhraseKeys(parsed.deletedBugPhraseKeys) }
+      : {}),
+    ...(sanitizeCustomBugPhrases(parsed.customBugPhrases)
+      ? { customBugPhrases: sanitizeCustomBugPhrases(parsed.customBugPhrases) }
+      : {}),
   };
 
   return reconcileDaysUntilToday(hydrated, todayIso);

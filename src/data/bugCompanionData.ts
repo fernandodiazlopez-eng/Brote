@@ -3,9 +3,14 @@
  */
 
 import { UiTextKey, UiTextsMap } from '../i18n/translations';
-import { AppLanguage, BugUnlockMilestone } from '../types';
+import {
+  AppLanguage,
+  BugDialogueCategory,
+  BugUnlockMilestone,
+  CustomBugPhrase,
+} from '../types';
 
-export type BugDialogueCategory = 'streak' | 'inactive' | 'reaction';
+export type { BugDialogueCategory };
 
 export const BUG_PHRASE_KEYS: Record<BugDialogueCategory, readonly UiTextKey[]> = {
   streak: [
@@ -36,14 +41,43 @@ export const BUG_PHRASE_KEYS: Record<BugDialogueCategory, readonly UiTextKey[]> 
   ],
 };
 
+const ALL_BUG_DEFAULT_KEYS_SET = new Set<string>([
+  ...BUG_PHRASE_KEYS.streak,
+  ...BUG_PHRASE_KEYS.inactive,
+  ...BUG_PHRASE_KEYS.reaction,
+]);
+
+export function isBugDefaultPhraseKey(key: string): key is UiTextKey {
+  return ALL_BUG_DEFAULT_KEYS_SET.has(key);
+}
+
+export function getBugCategoryForDefaultKey(key: UiTextKey): BugDialogueCategory | null {
+  if ((BUG_PHRASE_KEYS.streak as readonly string[]).includes(key)) return 'streak';
+  if ((BUG_PHRASE_KEYS.inactive as readonly string[]).includes(key)) return 'inactive';
+  if ((BUG_PHRASE_KEYS.reaction as readonly string[]).includes(key)) return 'reaction';
+  return null;
+}
+
 export function pickBugPhrase(
   category: BugDialogueCategory,
   uiTexts: UiTextsMap,
-  previousText?: string | null
+  previousText?: string | null,
+  deletedKeys?: readonly string[],
+  customPhrases?: readonly CustomBugPhrase[]
 ): string {
-  const keys = BUG_PHRASE_KEYS[category];
-  const pool = keys.map((key) => uiTexts[key]).filter((item) => item.trim().length > 0);
-  if (pool.length <= 1) return pool[0] || '';
+  const deletedSet = deletedKeys && deletedKeys.length > 0 ? new Set(deletedKeys) : null;
+  const defaultPool = BUG_PHRASE_KEYS[category]
+    .filter((key) => !deletedSet || !deletedSet.has(key))
+    .map((key) => uiTexts[key])
+    .filter((item) => item.trim().length > 0);
+
+  const customPool = (customPhrases || [])
+    .filter((item) => item.category === category && item.text.trim().length > 0)
+    .map((item) => item.text.trim());
+
+  const pool = [...defaultPool, ...customPool];
+  if (pool.length === 0) return '';
+  if (pool.length === 1) return pool[0];
 
   const candidates = previousText ? pool.filter((item) => item !== previousText) : pool;
   const source = candidates.length > 0 ? candidates : pool;

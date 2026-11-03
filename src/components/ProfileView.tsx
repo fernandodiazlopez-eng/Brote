@@ -9,9 +9,12 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Info, Play, Plus, Repeat, Settings, Trash2, X } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
+import { UiTextKey } from '../i18n/translations';
 import {
   AccentPaletteId,
+  BugDialogueCategory,
   CompletedWorkout,
+  CustomBugPhrase,
   DailyActivityRecord,
   MuscleGroupId,
   Routine,
@@ -72,6 +75,17 @@ interface ProfileViewProps {
   isBugUnlocked?: boolean;
   hideBug?: boolean;
   onChangeHideBug?: (hide: boolean) => void;
+  muteBugText?: boolean;
+  onChangeMuteBugText?: (mute: boolean) => void;
+  muteBugBounceSound?: boolean;
+  onChangeMuteBugBounceSound?: (mute: boolean) => void;
+  deletedBugPhraseKeys?: string[];
+  customBugPhrases?: CustomBugPhrase[];
+  onAddCustomBugPhrase?: (category: BugDialogueCategory, text: string) => void;
+  onUpdateCustomBugPhrase?: (id: string, text: string) => void;
+  onDeleteCustomBugPhrase?: (id: string) => void;
+  onDeleteDefaultBugPhrase?: (key: UiTextKey) => void;
+  onRestoreDeletedBugPhrases?: () => void;
   showBug?: boolean;
   bugMood?: BugGlobalMood;
   canPetBug?: boolean;
@@ -137,6 +151,17 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
   isBugUnlocked = false,
   hideBug = false,
   onChangeHideBug,
+  muteBugText = false,
+  onChangeMuteBugText,
+  muteBugBounceSound = false,
+  onChangeMuteBugBounceSound,
+  deletedBugPhraseKeys,
+  customBugPhrases,
+  onAddCustomBugPhrase,
+  onUpdateCustomBugPhrase,
+  onDeleteCustomBugPhrase,
+  onDeleteDefaultBugPhrase,
+  onRestoreDeletedBugPhrases,
   showBug = false,
   bugMood = 'none',
   canPetBug = false,
@@ -1152,6 +1177,17 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
         isBugUnlocked={isBugUnlocked}
         hideBug={hideBug}
         onChangeHideBug={onChangeHideBug}
+        muteBugText={muteBugText}
+        onChangeMuteBugText={onChangeMuteBugText}
+        muteBugBounceSound={muteBugBounceSound}
+        onChangeMuteBugBounceSound={onChangeMuteBugBounceSound}
+        deletedBugPhraseKeys={deletedBugPhraseKeys}
+        customBugPhrases={customBugPhrases}
+        onAddCustomBugPhrase={onAddCustomBugPhrase}
+        onUpdateCustomBugPhrase={onUpdateCustomBugPhrase}
+        onDeleteCustomBugPhrase={onDeleteCustomBugPhrase}
+        onDeleteDefaultBugPhrase={onDeleteDefaultBugPhrase}
+        onRestoreDeletedBugPhrases={onRestoreDeletedBugPhrases}
         onOpenTutorial={onOpenTutorial}
         timerNotificationsEnabled={timerNotificationsEnabled}
         onChangeTimerNotifications={onChangeTimerNotifications}

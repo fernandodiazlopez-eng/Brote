@@ -53,6 +53,7 @@ import {
   AppTab,
   BugUnlockMilestone,
   CompletedWorkout,
+  CustomBugPhrase,
   DailyActivityRecord,
   MuscleGroupId,
   Routine,
@@ -149,6 +150,7 @@ export default function App() {
   const [bugMarquee, setBugMarquee] = useState<{ id: number; text: string } | null>(null);
   const [trophyCelebrateToken, setTrophyCelebrateToken] = useState<number>(0);
   const [scrollTopHopToken, setScrollTopHopToken] = useState<number>(0);
+  const [tabTeleportToken, setTabTeleportToken] = useState<number>(0);
   const bugMoodTimersRef = useRef<number[]>([]);
   const lastBugPhraseRef = useRef<string | null>(null);
   const nextBugMsgIdRef = useRef<number>(0);
@@ -238,11 +240,22 @@ export default function App() {
 
   const showBugMarqueePhrase = useCallback(
     (category: BugDialogueCategory, lang: AppLanguage) => {
-      const customForLang = latestAppStateRef.current.customTexts[lang] as
+      const snap = latestAppStateRef.current;
+      if (snap.muteBugText) return;
+      const customForLang = snap.customTexts[lang] as
         | Partial<Record<UiTextKey, string>>
         | undefined;
       const resolvedTexts = resolveUiTexts(lang, customForLang);
-      const phrase = pickBugPhrase(category, resolvedTexts, lastBugPhraseRef.current);
+      const deletedKeys = snap.deletedBugPhraseKeys?.[lang];
+      const customPhrases = snap.customBugPhrases?.[lang];
+      const phrase = pickBugPhrase(
+        category,
+        resolvedTexts,
+        lastBugPhraseRef.current,
+        deletedKeys,
+        customPhrases
+      );
+      if (!phrase) return;
       lastBugPhraseRef.current = phrase;
       nextBugMsgIdRef.current += 1;
       setBugMarquee({ id: nextBugMsgIdRef.current, text: phrase });
@@ -277,7 +290,12 @@ export default function App() {
     if (nextTab !== AppTab.PROFILE) {
       setXpPulseToken(0);
     }
-    setActiveTab(nextTab);
+    setActiveTab((prevTab) => {
+      if (prevTab !== nextTab) {
+        setTabTeleportToken((n) => n + 1);
+      }
+      return nextTab;
+    });
   }, []);
 
   useEffect(() => {
@@ -1056,6 +1074,7 @@ export default function App() {
       }
       setIsSessionViewOpen(true);
       setXpPulseToken(0);
+      setTabTeleportToken((n) => n + 1);
       setActiveTab(AppTab.TRAINING);
     },
     [sessionRoutineId]
@@ -1091,6 +1110,7 @@ export default function App() {
     if (sessionOriginTab !== AppTab.PROFILE) {
       setXpPulseToken(0);
     }
+    setTabTeleportToken((n) => n + 1);
     setActiveTab(sessionOriginTab);
   }, [hasSessionProgress, sessionOriginTab]);
 
@@ -1841,6 +1861,113 @@ export default function App() {
     [clearBugMoodTimers]
   );
 
+  const handleChangeMuteBugText = useCallback((nextMute: boolean) => {
+    if (nextMute) {
+      setBugMarquee(null);
+    }
+    setAppState((prev) => ({
+      ...prev,
+      muteBugText: nextMute,
+    }));
+  }, []);
+
+  const handleChangeMuteBugBounceSound = useCallback((nextMute: boolean) => {
+    setAppState((prev) => ({
+      ...prev,
+      muteBugBounceSound: nextMute,
+    }));
+  }, []);
+
+  const handleAddCustomBugPhrase = useCallback(
+    (category: BugDialogueCategory, rawText: string) => {
+      const trimmed = rawText.trim().slice(0, 180);
+      if (!trimmed) return;
+      const newEntry: CustomBugPhrase = {
+        id: `cbp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        category,
+        text: trimmed,
+      };
+      setAppState((prev) => {
+        const lang = prev.language;
+        const existingList = prev.customBugPhrases?.[lang] || [];
+        return {
+          ...prev,
+          customBugPhrases: {
+            ...prev.customBugPhrases,
+            [lang]: [newEntry, ...existingList],
+          },
+        };
+      });
+    },
+    []
+  );
+
+  const handleUpdateCustomBugPhrase = useCallback((id: string, nextText: string) => {
+    const trimmed = nextText.trim().slice(0, 180);
+    if (!trimmed) return;
+    setAppState((prev) => {
+      const lang = prev.language;
+      const existingList = prev.customBugPhrases?.[lang];
+      if (!existingList) return prev;
+      return {
+        ...prev,
+        customBugPhrases: {
+          ...prev.customBugPhrases,
+          [lang]: existingList.map((item) =>
+            item.id === id ? { ...item, text: trimmed } : item
+          ),
+        },
+      };
+    });
+  }, []);
+
+  const handleDeleteCustomBugPhrase = useCallback((id: string) => {
+    setAppState((prev) => {
+      const lang = prev.language;
+      const existingList = prev.customBugPhrases?.[lang];
+      if (!existingList) return prev;
+      const filtered = existingList.filter((item) => item.id !== id);
+      const nextMap = { ...prev.customBugPhrases };
+      if (filtered.length > 0) {
+        nextMap[lang] = filtered;
+      } else {
+        delete nextMap[lang];
+      }
+      return {
+        ...prev,
+        customBugPhrases: Object.keys(nextMap).length > 0 ? nextMap : undefined,
+      };
+    });
+  }, []);
+
+  const handleDeleteDefaultBugPhrase = useCallback((key: UiTextKey) => {
+    setAppState((prev) => {
+      const lang = prev.language;
+      const existingDeleted = prev.deletedBugPhraseKeys?.[lang] || [];
+      if (existingDeleted.includes(key)) return prev;
+      return {
+        ...prev,
+        deletedBugPhraseKeys: {
+          ...prev.deletedBugPhraseKeys,
+          [lang]: [...existingDeleted, key],
+        },
+      };
+    });
+  }, []);
+
+  const handleRestoreDeletedBugPhrases = useCallback(() => {
+    setAppState((prev) => {
+      const lang = prev.language;
+      if (!prev.deletedBugPhraseKeys?.[lang]?.length) return prev;
+      const nextDeleted = { ...prev.deletedBugPhraseKeys };
+      delete nextDeleted[lang];
+      return {
+        ...prev,
+        deletedBugPhraseKeys: Object.keys(nextDeleted).length > 0 ? nextDeleted : undefined,
+      };
+    });
+  }, []);
+
   const handleUpdateDaySteps = useCallback(
     (dateIso: string, nextSteps: number) => {
       const realToday = getTodayDateIso();
@@ -1932,8 +2059,16 @@ export default function App() {
       isAlarmRinging,
       trophyCelebrateToken,
       scrollTopHopToken,
+      tabTeleportToken,
+      muteBounceSound: Boolean(appState.muteBugBounceSound),
     }),
-    [isAlarmRinging, trophyCelebrateToken, scrollTopHopToken]
+    [
+      isAlarmRinging,
+      trophyCelebrateToken,
+      scrollTopHopToken,
+      tabTeleportToken,
+      appState.muteBugBounceSound,
+    ]
   );
 
   const handleCompleteDevicePermissions = useCallback(
@@ -1985,6 +2120,7 @@ export default function App() {
 
   const handleOpenFloatingSession = useCallback(() => {
     setIsSessionViewOpen(true);
+    setTabTeleportToken((n) => n + 1);
     setActiveTab(AppTab.TRAINING);
   }, []);
 
@@ -2070,8 +2206,8 @@ export default function App() {
           />
         )}
 
-        {/* Carrusel luminoso de metro de Bug (sin bocadillos; solo se activa en eventos específicos) */}
-        {showBug && bugMarquee && !isTutorialOpen && (
+        {/* Carrusel luminoso de metro de Bug (sin bocadillos; solo se activa en eventos específicos y si no está silenciado) */}
+        {showBug && !appState.muteBugText && bugMarquee && !isTutorialOpen && (
           <BugSubwayMarquee
             message={bugMarquee.text}
             messageId={bugMarquee.id}
@@ -2216,6 +2352,17 @@ export default function App() {
               isBugUnlocked={isBugUnlocked}
               hideBug={hideBug}
               onChangeHideBug={handleChangeHideBug}
+              muteBugText={Boolean(appState.muteBugText)}
+              onChangeMuteBugText={handleChangeMuteBugText}
+              muteBugBounceSound={Boolean(appState.muteBugBounceSound)}
+              onChangeMuteBugBounceSound={handleChangeMuteBugBounceSound}
+              deletedBugPhraseKeys={appState.deletedBugPhraseKeys?.[appState.language] || []}
+              customBugPhrases={appState.customBugPhrases?.[appState.language] || []}
+              onAddCustomBugPhrase={handleAddCustomBugPhrase}
+              onUpdateCustomBugPhrase={handleUpdateCustomBugPhrase}
+              onDeleteCustomBugPhrase={handleDeleteCustomBugPhrase}
+              onDeleteDefaultBugPhrase={handleDeleteDefaultBugPhrase}
+              onRestoreDeletedBugPhrases={handleRestoreDeletedBugPhrases}
               showBug={showBug}
               bugMood={bugMood}
               canPetBug={isBugPetUnlocked}

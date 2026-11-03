@@ -16,21 +16,32 @@ import {
   Compass,
   Download,
   Globe,
+  MessageSquare,
   Moon,
   Palette,
+  Plus,
   RotateCcw,
   Search,
   SlidersHorizontal,
   Smartphone,
   Sun,
+  Trash2,
   Type,
   Upload,
+  Volume2,
   X,
 } from 'lucide-react';
+import { isBugDefaultPhraseKey } from '../data/bugCompanionData';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { useI18n } from '../i18n/I18nContext';
 import { UI_TEXT_SECTIONS, UiTextFieldMeta, UiTextKey } from '../i18n/translations';
-import { AccentPaletteId, ThemeMode, XpFormulas } from '../types';
+import {
+  AccentPaletteId,
+  BugDialogueCategory,
+  CustomBugPhrase,
+  ThemeMode,
+  XpFormulas,
+} from '../types';
 import { requestTimerNotificationPermission } from '../utils/audioEffects';
 import {
   normalizeHexColor,
@@ -137,8 +148,10 @@ interface CustomTextFieldRowProps {
   defaultValue: string;
   customValue: string | undefined;
   resetLabel: string;
+  deleteLabel?: string;
   onUpdate: (key: UiTextKey, value: string) => void;
   onReset: (key: UiTextKey) => void;
+  onDelete?: (key: UiTextKey) => void;
 }
 
 const CustomTextFieldRow: React.FC<CustomTextFieldRowProps> = React.memo(({
@@ -147,8 +160,10 @@ const CustomTextFieldRow: React.FC<CustomTextFieldRowProps> = React.memo(({
   defaultValue,
   customValue,
   resetLabel,
+  deleteLabel,
   onUpdate,
   onReset,
+  onDelete,
 }) => {
   const effectiveExternal = customValue !== undefined ? customValue : defaultValue;
   const [draft, setDraft] = useState<string>(effectiveExternal);
@@ -188,20 +203,32 @@ const CustomTextFieldRow: React.FC<CustomTextFieldRowProps> = React.memo(({
           {label}
         </label>
 
-        {isModified && (
-          <button
-            type="button"
-            onClick={() => {
-              setDraft(defaultValue);
-              onReset(field.key);
-            }}
-            aria-label={`${resetLabel}: ${label}`}
-            className="btn-secondary min-h-[28px] px-2 py-0.5 text-[11px] flex items-center gap-1 shrink-0 whitespace-nowrap"
-          >
-            <RotateCcw className="w-3 h-3 text-accent shrink-0" />
-            <span>{resetLabel}</span>
-          </button>
-        )}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {isModified && (
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(defaultValue);
+                onReset(field.key);
+              }}
+              aria-label={`${resetLabel}: ${label}`}
+              className="btn-secondary min-h-[28px] px-2 py-0.5 text-[11px] flex items-center gap-1 shrink-0 whitespace-nowrap"
+            >
+              <RotateCcw className="w-3 h-3 text-accent shrink-0" />
+              <span>{resetLabel}</span>
+            </button>
+          )}
+          {onDelete && (
+            <button
+              type="button"
+              onClick={() => onDelete(field.key)}
+              aria-label={`${deleteLabel || 'Eliminar'}: ${label}`}
+              className="btn-quiet min-h-[28px] min-w-[28px] flex items-center justify-center shrink-0"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
       </div>
 
       {field.multiline ? (
@@ -233,6 +260,71 @@ const CustomTextFieldRow: React.FC<CustomTextFieldRowProps> = React.memo(({
   );
 });
 
+interface CustomBugPhraseRowProps {
+  phrase: CustomBugPhrase;
+  categoryLabel: string;
+  customTagLabel: string;
+  deleteLabel: string;
+  onUpdate: (id: string, nextText: string) => void;
+  onDelete: (id: string) => void;
+}
+
+const CustomBugPhraseRow: React.FC<CustomBugPhraseRowProps> = React.memo(({
+  phrase,
+  categoryLabel,
+  customTagLabel,
+  deleteLabel,
+  onUpdate,
+  onDelete,
+}) => {
+  const [draft, setDraft] = useState(phrase.text);
+
+  useEffect(() => {
+    setDraft(phrase.text);
+  }, [phrase.text]);
+
+  return (
+    <div className="py-2.5 space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <label
+          htmlFor={`custom-bug-phrase-${phrase.id}`}
+          className="text-xs font-semibold text-fg truncate"
+        >
+          {customTagLabel} · <span className="text-accent">{categoryLabel}</span>
+        </label>
+
+        <button
+          type="button"
+          onClick={() => onDelete(phrase.id)}
+          aria-label={`${deleteLabel}: ${phrase.text}`}
+          className="btn-quiet min-h-[28px] min-w-[28px] flex items-center justify-center shrink-0"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      <input
+        id={`custom-bug-phrase-${phrase.id}`}
+        type="text"
+        value={draft}
+        onChange={(e) => {
+          const val = e.target.value;
+          setDraft(val);
+          if (val.trim() !== '') {
+            onUpdate(phrase.id, val);
+          }
+        }}
+        onBlur={() => {
+          if (draft.trim() === '') {
+            setDraft(phrase.text);
+          }
+        }}
+        className="input-field w-full min-h-[38px] px-3 py-1.5 text-xs border-accent"
+      />
+    </div>
+  );
+});
+
 interface ProfileSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -249,6 +341,17 @@ interface ProfileSettingsModalProps {
   isBugUnlocked?: boolean;
   hideBug?: boolean;
   onChangeHideBug?: (hide: boolean) => void;
+  muteBugText?: boolean;
+  onChangeMuteBugText?: (mute: boolean) => void;
+  muteBugBounceSound?: boolean;
+  onChangeMuteBugBounceSound?: (mute: boolean) => void;
+  deletedBugPhraseKeys?: string[];
+  customBugPhrases?: CustomBugPhrase[];
+  onAddCustomBugPhrase?: (category: BugDialogueCategory, text: string) => void;
+  onUpdateCustomBugPhrase?: (id: string, text: string) => void;
+  onDeleteCustomBugPhrase?: (id: string) => void;
+  onDeleteDefaultBugPhrase?: (key: UiTextKey) => void;
+  onRestoreDeletedBugPhrases?: () => void;
   onOpenTutorial?: () => void;
   timerNotificationsEnabled?: boolean;
   onChangeTimerNotifications?: (enabled: boolean) => void;
@@ -272,6 +375,17 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   isBugUnlocked = false,
   hideBug = false,
   onChangeHideBug,
+  muteBugText = false,
+  onChangeMuteBugText,
+  muteBugBounceSound = false,
+  onChangeMuteBugBounceSound,
+  deletedBugPhraseKeys = [],
+  customBugPhrases = [],
+  onAddCustomBugPhrase,
+  onUpdateCustomBugPhrase,
+  onDeleteCustomBugPhrase,
+  onDeleteDefaultBugPhrase,
+  onRestoreDeletedBugPhrases,
   onOpenTutorial,
   timerNotificationsEnabled = false,
   onChangeTimerNotifications,
@@ -295,6 +409,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
 
   const [settingsSection, setSettingsSection] = useState<'main' | 'advanced' | 'texts'>('main');
   const [textSearchQuery, setTextSearchQuery] = useState('');
+  const [newBugPhraseCategory, setNewBugPhraseCategory] = useState<BugDialogueCategory>('streak');
+  const [newBugPhraseDraft, setNewBugPhraseDraft] = useState('');
   const [backupFeedback, setBackupFeedback] = useState<'success' | 'error' | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const colorPickerInputRef = useRef<HTMLInputElement | null>(null);
@@ -326,6 +442,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
     if (isOpen) {
       setSettingsSection('main');
       setTextSearchQuery('');
+      setNewBugPhraseDraft('');
       setShowIOSInstallGuide(false);
       setBackupFeedback(null);
       setShowCustomHexError(false);
@@ -389,9 +506,27 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
     [customForLang, defaultT]
   );
 
+  const deletedBugKeysSet = useMemo(
+    () => new Set<string>(deletedBugPhraseKeys),
+    [deletedBugPhraseKeys]
+  );
+
+  const filteredCustomBugPhrases = useMemo(() => {
+    const q = textSearchQuery.trim().toLowerCase();
+    if (!q) return customBugPhrases;
+    return customBugPhrases.filter((p) => p.text.toLowerCase().includes(q));
+  }, [customBugPhrases, textSearchQuery]);
+
   const filteredTextSections = useMemo(() => {
-    const visibleSections = isBugUnlocked
-      ? UI_TEXT_SECTIONS
+    const baseSections = isBugUnlocked
+      ? UI_TEXT_SECTIONS.map((section) =>
+          section.id === 'bug_phrases'
+            ? {
+                ...section,
+                fields: section.fields.filter((f) => !deletedBugKeysSet.has(f.key)),
+              }
+            : section
+        )
       : UI_TEXT_SECTIONS.filter((section) => section.id !== 'bug_phrases').map((section) =>
           section.id === 'settings'
             ? {
@@ -402,9 +537,9 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
         );
 
     const normalizedQuery = textSearchQuery.trim().toLowerCase();
-    if (!normalizedQuery) return visibleSections;
+    if (!normalizedQuery) return baseSections;
 
-    return visibleSections
+    return baseSections
       .map((section) => {
         const matchingFields = section.fields.filter((field) => {
           const metaLabel = language === 'en' ? field.labelEn : field.labelEs;
@@ -421,8 +556,20 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
           fields: matchingFields,
         };
       })
-      .filter((section) => section.fields.length > 0);
-  }, [isBugUnlocked, textSearchQuery, language, t, defaultT]);
+      .filter(
+        (section) =>
+          section.fields.length > 0 ||
+          (section.id === 'bug_phrases' && filteredCustomBugPhrases.length > 0)
+      );
+  }, [
+    isBugUnlocked,
+    deletedBugKeysSet,
+    textSearchQuery,
+    language,
+    t,
+    defaultT,
+    filteredCustomBugPhrases.length,
+  ]);
 
   if (!isOpen) return null;
 
@@ -723,50 +870,124 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               </div>
             </div>
 
-            {/* Visibilidad de Bug (aparece en Ajustes únicamente tras desbloquearlo en Nivel 3) */}
+            {/* Visibilidad y audio/texto de Bug (aparece únicamente tras desbloquearlo en Nivel 3) */}
             {isBugUnlocked && onChangeHideBug && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <svg
-                    viewBox="0 0 16 14"
-                    className="w-3.5 h-3 shrink-0"
-                    shapeRendering="crispEdges"
-                    aria-hidden="true"
+              <div className="space-y-3 pt-1">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-1.5">
+                    <svg
+                      viewBox="0 0 16 14"
+                      className="w-3.5 h-3 shrink-0"
+                      shapeRendering="crispEdges"
+                      aria-hidden="true"
+                    >
+                      <BugPixelGraphic expression="neutral" />
+                    </svg>
+                    <p className="font-display text-xs font-semibold uppercase tracking-wider text-fg-secondary">
+                      {t.settings_bug_label}
+                    </p>
+                  </div>
+
+                  <div
+                    role="group"
+                    aria-label={t.settings_bug_label}
+                    className="seg-group grid grid-cols-2 gap-1"
                   >
-                    <BugPixelGraphic expression="neutral" />
-                  </svg>
-                  <p className="font-display text-xs font-semibold uppercase tracking-wider text-fg-secondary">
-                    {t.settings_bug_label}
-                  </p>
+                    <button
+                      type="button"
+                      onClick={() => onChangeHideBug(false)}
+                      aria-pressed={!hideBug}
+                      className={`seg-btn min-h-[40px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
+                        !hideBug ? 'seg-btn-active' : ''
+                      }`}
+                    >
+                      {t.settings_bug_show}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onChangeHideBug(true)}
+                      aria-pressed={hideBug}
+                      className={`seg-btn min-h-[40px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
+                        hideBug ? 'seg-btn-active' : ''
+                      }`}
+                    >
+                      {t.settings_bug_hide}
+                    </button>
+                  </div>
                 </div>
 
-                <div
-                  role="group"
-                  aria-label={t.settings_bug_label}
-                  className="seg-group grid grid-cols-2 gap-1"
-                >
-                  <button
-                    type="button"
-                    onClick={() => onChangeHideBug(false)}
-                    aria-pressed={!hideBug}
-                    className={`seg-btn min-h-[40px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
-                      !hideBug ? 'seg-btn-active' : ''
-                    }`}
-                  >
-                    {t.settings_bug_show}
-                  </button>
+                {onChangeMuteBugText && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-xs text-fg">
+                      <MessageSquare className="w-3.5 h-3.5 text-accent shrink-0" />
+                      <span className="font-semibold">{t.settings_bug_text_label}</span>
+                    </div>
+                    <div
+                      role="group"
+                      aria-label={t.settings_bug_text_label}
+                      className="seg-group grid grid-cols-2 gap-1"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => onChangeMuteBugText(false)}
+                        aria-pressed={!muteBugText}
+                        className={`seg-btn min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
+                          !muteBugText ? 'seg-btn-active' : ''
+                        }`}
+                      >
+                        {t.settings_bug_unmuted}
+                      </button>
 
-                  <button
-                    type="button"
-                    onClick={() => onChangeHideBug(true)}
-                    aria-pressed={hideBug}
-                    className={`seg-btn min-h-[40px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
-                      hideBug ? 'seg-btn-active' : ''
-                    }`}
-                  >
-                    {t.settings_bug_hide}
-                  </button>
-                </div>
+                      <button
+                        type="button"
+                        onClick={() => onChangeMuteBugText(true)}
+                        aria-pressed={muteBugText}
+                        className={`seg-btn min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
+                          muteBugText ? 'seg-btn-active' : ''
+                        }`}
+                      >
+                        {t.settings_bug_muted}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {onChangeMuteBugBounceSound && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-xs text-fg">
+                      <Volume2 className="w-3.5 h-3.5 text-accent shrink-0" />
+                      <span className="font-semibold">{t.settings_bug_bounce_sound_label}</span>
+                    </div>
+                    <div
+                      role="group"
+                      aria-label={t.settings_bug_bounce_sound_label}
+                      className="seg-group grid grid-cols-2 gap-1"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => onChangeMuteBugBounceSound(false)}
+                        aria-pressed={!muteBugBounceSound}
+                        className={`seg-btn min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
+                          !muteBugBounceSound ? 'seg-btn-active' : ''
+                        }`}
+                      >
+                        {t.settings_bug_unmuted}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => onChangeMuteBugBounceSound(true)}
+                        aria-pressed={muteBugBounceSound}
+                        className={`seg-btn min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
+                          muteBugBounceSound ? 'seg-btn-active' : ''
+                        }`}
+                      >
+                        {t.settings_bug_muted}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1274,25 +1495,135 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 filteredTextSections.map((section) => {
                   const sectionHeading =
                     language === 'en' ? section.titleEn : section.titleEs;
+                  const isBugSection = section.id === 'bug_phrases';
+
+                  const getCategoryLabel = (cat: BugDialogueCategory) =>
+                    cat === 'streak'
+                      ? t.settings_bug_cat_streak
+                      : cat === 'inactive'
+                      ? t.settings_bug_cat_inactive
+                      : t.settings_bug_cat_reaction;
+
                   return (
                     <div key={section.id} className="space-y-1">
                       <h4 className="font-display text-xs font-bold uppercase tracking-wider text-accent pb-1 border-b border-subtle">
                         {sectionHeading}
                       </h4>
+
+                      {isBugSection && onAddCustomBugPhrase && !textSearchQuery.trim() && (
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            const trimmed = newBugPhraseDraft.trim();
+                            if (!trimmed) return;
+                            onAddCustomBugPhrase(newBugPhraseCategory, trimmed);
+                            setNewBugPhraseDraft('');
+                          }}
+                          className="py-2.5 space-y-2 border-b border-subtle"
+                        >
+                          <p className="text-xs font-semibold text-fg">
+                            {t.settings_bug_new_phrase_label}
+                          </p>
+                          <div
+                            role="group"
+                            aria-label={t.settings_bug_new_phrase_label}
+                            className="seg-group grid grid-cols-3 gap-1"
+                          >
+                            {(['streak', 'inactive', 'reaction'] as const).map((cat) => (
+                              <button
+                                key={cat}
+                                type="button"
+                                onClick={() => setNewBugPhraseCategory(cat)}
+                                aria-pressed={newBugPhraseCategory === cat}
+                                className={`seg-btn min-h-[34px] px-2 py-1 text-[11px] flex items-center justify-center truncate ${
+                                  newBugPhraseCategory === cat ? 'seg-btn-active' : ''
+                                }`}
+                              >
+                                {getCategoryLabel(cat)}
+                              </button>
+                            ))}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={newBugPhraseDraft}
+                              onChange={(e) => setNewBugPhraseDraft(e.target.value)}
+                              maxLength={180}
+                              placeholder={t.settings_bug_new_phrase_placeholder}
+                              aria-label={t.settings_bug_new_phrase_placeholder}
+                              className="input-field flex-1 min-w-0 min-h-[38px] px-3 py-1.5 text-xs placeholder:text-fg-muted"
+                            />
+                            <button
+                              type="submit"
+                              disabled={!newBugPhraseDraft.trim()}
+                              className={`min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center gap-1 whitespace-nowrap shrink-0 ${
+                                newBugPhraseDraft.trim()
+                                  ? 'btn-primary'
+                                  : 'btn-secondary opacity-50 cursor-not-allowed'
+                              }`}
+                            >
+                              <Plus className="w-3.5 h-3.5 shrink-0" />
+                              <span>{t.settings_bug_add_phrase_btn}</span>
+                            </button>
+                          </div>
+                        </form>
+                      )}
+
                       <div className="divide-y divide-subtle">
-                        {section.fields.map((field) => (
-                          <CustomTextFieldRow
-                            key={`${language}-${field.key}`}
-                            field={field}
-                            label={language === 'en' ? field.labelEn : field.labelEs}
-                            defaultValue={defaultT[field.key]}
-                            customValue={customForLang[field.key]}
-                            resetLabel={t.advanced_texts_reset_one_btn}
-                            onUpdate={onUpdateCustomText}
-                            onReset={onResetCustomText}
-                          />
-                        ))}
+                        {isBugSection &&
+                          onUpdateCustomBugPhrase &&
+                          onDeleteCustomBugPhrase &&
+                          filteredCustomBugPhrases.map((phrase) => (
+                            <CustomBugPhraseRow
+                              key={phrase.id}
+                              phrase={phrase}
+                              categoryLabel={getCategoryLabel(phrase.category)}
+                              customTagLabel={t.settings_bug_custom_phrase_label}
+                              deleteLabel={t.common_delete}
+                              onUpdate={onUpdateCustomBugPhrase}
+                              onDelete={onDeleteCustomBugPhrase}
+                            />
+                          ))}
+
+                        {section.fields.map((field) => {
+                          const canDeleteDefault =
+                            isBugSection &&
+                            Boolean(onDeleteDefaultBugPhrase) &&
+                            isBugDefaultPhraseKey(field.key);
+                          return (
+                            <CustomTextFieldRow
+                              key={`${language}-${field.key}`}
+                              field={field}
+                              label={language === 'en' ? field.labelEn : field.labelEs}
+                              defaultValue={defaultT[field.key]}
+                              customValue={customForLang[field.key]}
+                              resetLabel={t.advanced_texts_reset_one_btn}
+                              deleteLabel={t.common_delete}
+                              onUpdate={onUpdateCustomText}
+                              onReset={onResetCustomText}
+                              onDelete={canDeleteDefault ? onDeleteDefaultBugPhrase : undefined}
+                            />
+                          );
+                        })}
                       </div>
+
+                      {isBugSection &&
+                        onRestoreDeletedBugPhrases &&
+                        deletedBugPhraseKeys.length > 0 && (
+                          <div className="pt-2">
+                            <button
+                              type="button"
+                              onClick={onRestoreDeletedBugPhrases}
+                              className="btn-secondary w-full min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center gap-1.5 whitespace-nowrap"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5 text-accent shrink-0" />
+                              <span>
+                                {t.settings_bug_restore_deleted_btn} ({deletedBugPhraseKeys.length})
+                              </span>
+                            </button>
+                          </div>
+                        )}
                     </div>
                   );
                 })

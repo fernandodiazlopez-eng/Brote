@@ -139,10 +139,22 @@ export interface AppPersistentState {
   bugPetUnlockedAtIso?: string; // fecha ISO al alcanzar Nivel 4 y desbloquear acariciar a Bug
   bugHockeyUnlockedAtIso?: string; // fecha ISO al alcanzar Nivel 5 y desbloquear jugar / lanzar a Bug
   hideBug?: boolean; // opción en Ajustes para ocultar o mostrar a Bug tras desbloquearlo
+  muteBugText?: boolean; // opción en Ajustes para silenciar el tren de texto («Bug dice:»)
+  muteBugBounceSound?: boolean; // opción en Ajustes para silenciar el sonido de rebote al lanzar a Bug
+  deletedBugPhraseKeys?: Partial<Record<AppLanguage, string[]>>; // claves de frases base de Bug eliminadas por el usuario
+  customBugPhrases?: Partial<Record<AppLanguage, CustomBugPhrase[]>>; // frases creadas por el usuario para Bug
   hasCompletedTutorial?: boolean; // indica si el usuario ya completó o saltó el tutorial interactivo inicial
   hasPromptedDevicePermissions?: boolean; // asegura preguntar permisos opcionales del móvil una única vez
   timerNotificationsEnabled?: boolean; // avisos del sistema al finalizar temporizador en segundo plano / pantalla apagada
   motionStepsEnabled?: boolean; // detección de pasos en tiempo real con el acelerómetro del móvil
+}
+
+export type BugDialogueCategory = 'streak' | 'inactive' | 'reaction';
+
+export interface CustomBugPhrase {
+  id: string;
+  category: BugDialogueCategory;
+  text: string;
 }
 
 export type BugUnlockMilestone = 'level3' | 'level4' | 'level5';
