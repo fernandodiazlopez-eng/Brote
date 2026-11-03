@@ -388,6 +388,18 @@ function sanitizeCategory(value: unknown): RoutineCategory {
   return 'Fuerza';
 }
 
+function sanitizePositiveMetric(
+  value: unknown,
+  minVal: number,
+  maxVal: number
+): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  const clamped = Math.max(minVal, Math.min(maxVal, value));
+  return Math.round(clamped * 100) / 100;
+}
+
 function sanitizeRoutinesList(
   rawList: unknown,
   formulas: XpFormulas
@@ -403,6 +415,7 @@ function sanitizeRoutinesList(
       typeof rec.durationMin === 'number' && Number.isFinite(rec.durationMin)
         ? Math.max(1, Math.min(240, Math.round(rec.durationMin)))
         : 45;
+    const routineDistanceKm = sanitizePositiveMetric(rec.distanceKm, 0.01, 999);
     const title =
       typeof rec.title === 'string' && rec.title.trim() !== ''
         ? rec.title.trim().slice(0, 120)
@@ -422,6 +435,11 @@ function sanitizeRoutinesList(
         const exerciseMuscles = categorySupportsMuscles(category)
           ? sanitizeMuscleGroups(rawExerciseMuscles)
           : undefined;
+        const weightKg = categorySupportsMuscles(category)
+          ? sanitizePositiveMetric(exRec.weightKg, 0.1, 2000)
+          : undefined;
+        const distanceKm = sanitizePositiveMetric(exRec.distanceKm, 0.01, 999);
+        const exDurationMin = sanitizePositiveMetric(exRec.durationMin, 0.5, 600);
         exercises.push({
           id:
             typeof exRec.id === 'string' && exRec.id.trim() !== ''
@@ -429,9 +447,12 @@ function sanitizeRoutinesList(
               : `ex-${exercises.length}-${Date.now()}`,
           name: exRec.name.trim().slice(0, 120),
           setsReps:
-            typeof exRec.setsReps === 'string' && exRec.setsReps.trim() !== ''
+            typeof exRec.setsReps === 'string'
               ? exRec.setsReps.trim().slice(0, 60)
-              : '3 × 10',
+              : '',
+          ...(weightKg !== undefined ? { weightKg } : {}),
+          ...(distanceKm !== undefined ? { distanceKm } : {}),
+          ...(exDurationMin !== undefined ? { durationMin: exDurationMin } : {}),
           ...(exerciseMuscles ? { muscleGroups: exerciseMuscles } : {}),
         });
       }
@@ -448,6 +469,7 @@ function sanitizeRoutinesList(
       title,
       category,
       durationMin,
+      ...(routineDistanceKm !== undefined ? { distanceKm: routineDistanceKm } : {}),
       xpReward: calculateRoutineBaseXp(category, durationMin, formulas),
       exercises,
       ...(sanitizedMuscles ? { muscleGroups: sanitizedMuscles } : {}),
@@ -480,6 +502,7 @@ function sanitizeDaysByIso(rawDays: unknown): Record<string, DailyActivityRecord
           categorySupportsMuscles(workoutCategory) && Array.isArray(w.muscleGroups)
             ? sanitizeMuscleGroups(w.muscleGroups) ?? []
             : undefined;
+        const workoutDistanceKm = sanitizePositiveMetric(w.distanceKm, 0.01, 999);
         const completionRatio =
           typeof w.completionRatio === 'number' && Number.isFinite(w.completionRatio)
             ? Math.max(0, Math.min(1, w.completionRatio))
@@ -496,6 +519,7 @@ function sanitizeDaysByIso(rawDays: unknown): Record<string, DailyActivityRecord
             typeof w.durationMin === 'number' && Number.isFinite(w.durationMin)
               ? Math.max(1, Math.min(720, Math.round(w.durationMin)))
               : 30,
+          ...(workoutDistanceKm !== undefined ? { distanceKm: workoutDistanceKm } : {}),
           xpEarned:
             typeof w.xpEarned === 'number' && Number.isFinite(w.xpEarned)
               ? Math.max(0, Math.min(MAX_TOTAL_XP, Math.floor(w.xpEarned)))

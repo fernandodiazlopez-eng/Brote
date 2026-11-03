@@ -68,6 +68,9 @@ export interface RoutineExercise {
   id: string;
   name: string;
   setsReps: string;
+  weightKg?: number;
+  distanceKm?: number;
+  durationMin?: number;
   muscleGroups?: MuscleGroupId[];
 }
 
@@ -76,6 +79,7 @@ export interface Routine {
   title: string;
   category: RoutineCategory;
   durationMin: number;
+  distanceKm?: number;
   xpReward: number;
   exercises: RoutineExercise[];
   muscleGroups?: MuscleGroupId[];
@@ -88,6 +92,7 @@ export interface CompletedWorkout {
   title: string;
   category: RoutineCategory;
   durationMin: number;
+  distanceKm?: number;
   xpEarned: number;
   timeLabel: string;
   muscleGroups?: MuscleGroupId[];

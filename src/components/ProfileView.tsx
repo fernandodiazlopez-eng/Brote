@@ -136,7 +136,11 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
   canPetBug = false,
   canLaunchBugHockey = false,
 }) => {
-  const { locale, t, formatCategory } = useI18n();
+  const { language, locale, t, formatCategory } = useI18n();
+  const formatKmValue = (km: number) => {
+    const rounded = String(Math.round(km * 100) / 100);
+    return language === 'es' ? rounded.replace('.', ',') : rounded;
+  };
 
   const rawBarUid = useId().replace(/:/g, '');
   const xpBarClipId = `xp-clip-${rawBarUid}`;
@@ -825,7 +829,11 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
                             <p className="text-sm font-semibold text-fg truncate">{log.title}</p>
                             <p className="text-xs text-fg-muted font-mono tabular-nums mt-0.5">
                               {formatCategory(log.category)} · {log.durationMin}{' '}
-                              {t.training_min_short} · {log.timeLabel}
+                              {t.training_min_short}
+                              {log.distanceKm !== undefined
+                                ? ` · ${formatKmValue(log.distanceKm)} ${t.steps_km_unit}`
+                                : ''}{' '}
+                              · {log.timeLabel}
                             </p>
                           </div>
                           <span className="text-xs font-mono font-bold text-accent tabular-nums shrink-0">
@@ -904,7 +912,11 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
                               </p>
                               <p className="text-xs text-fg-muted font-mono tabular-nums mt-0.5">
                                 {formatCategory(log.category)} · {log.durationMin}{' '}
-                                {t.training_min_short} · {log.timeLabel}
+                                {t.training_min_short}
+                                {log.distanceKm !== undefined
+                                  ? ` · ${formatKmValue(log.distanceKm)} ${t.steps_km_unit}`
+                                  : ''}{' '}
+                                · {log.timeLabel}
                               </p>
                             </button>
 
@@ -979,7 +991,11 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
                               </p>
                               <p className="text-xs text-fg-muted font-mono tabular-nums mt-0.5">
                                 {formatCategory(routine.category)} · {routine.durationMin}{' '}
-                                {t.training_min_short} · +{routine.xpReward} {t.profile_xp_unit}
+                                {t.training_min_short}
+                                {routine.distanceKm !== undefined
+                                  ? ` · ${formatKmValue(routine.distanceKm)} ${t.steps_km_unit}`
+                                  : ''}{' '}
+                                · +{routine.xpReward} {t.profile_xp_unit}
                               </p>
                             </div>
 
@@ -1054,7 +1070,11 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
                             </p>
                             <p className="text-xs text-fg-muted font-mono tabular-nums mt-0.5">
                               {formatCategory(routine.category)} · {routine.durationMin}{' '}
-                              {t.training_min_short} · +{routine.xpReward} {t.profile_xp_unit}
+                              {t.training_min_short}
+                              {routine.distanceKm !== undefined
+                                ? ` · ${formatKmValue(routine.distanceKm)} ${t.steps_km_unit}`
+                                : ''}{' '}
+                              · +{routine.xpReward} {t.profile_xp_unit}
                             </p>
                           </div>
 
@@ -1163,7 +1183,11 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
                         <p className="text-sm font-semibold text-fg truncate">{routine.title}</p>
                         <p className="text-xs text-fg-muted font-mono tabular-nums mt-0.5">
                           {formatCategory(routine.category)} · {routine.durationMin}{' '}
-                          {t.training_min_short} · +{routine.xpReward} {t.profile_xp_unit}
+                          {t.training_min_short}
+                          {routine.distanceKm !== undefined
+                            ? ` · ${formatKmValue(routine.distanceKm)} ${t.steps_km_unit}`
+                            : ''}{' '}
+                          · +{routine.xpReward} {t.profile_xp_unit}
                         </p>
                       </div>
 

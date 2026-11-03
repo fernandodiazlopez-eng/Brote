@@ -980,12 +980,28 @@ export default function App() {
         ? extractMuscleGroupsFromExercises(completedExercises) ?? []
         : activeSessionRoutine.muscleGroups ?? [];
 
+      const completedStagesDistanceSum =
+        totalExercises > 0
+          ? Math.round(
+              completedExercises.reduce((sum, ex) => sum + (ex.distanceKm ?? 0), 0) * 100
+            ) / 100
+          : 0;
+      const workoutDistanceKm =
+        completedStagesDistanceSum > 0
+          ? completedStagesDistanceSum
+          : activeSessionRoutine.distanceKm !== undefined
+          ? Math.round(activeSessionRoutine.distanceKm * completionRatio * 100) / 100
+          : undefined;
+
       const newWorkoutLog: CompletedWorkout = {
         id: `done-${Date.now()}`,
         routineId: activeSessionRoutine.id,
         title: activeSessionRoutine.title,
         category: activeSessionRoutine.category,
         durationMin: effectiveDurationMin,
+        ...(workoutDistanceKm && workoutDistanceKm > 0
+          ? { distanceKm: workoutDistanceKm }
+          : {}),
         xpEarned: 0,
         timeLabel,
         completionRatio,
@@ -1297,6 +1313,9 @@ export default function App() {
               title: workoutLog.title,
               category: workoutLog.category,
               durationMin: workoutLog.durationMin,
+              ...(workoutLog.distanceKm !== undefined
+                ? { distanceKm: workoutLog.distanceKm }
+                : {}),
               xpReward: calculateRoutineBaseXp(
                 workoutLog.category,
                 workoutLog.durationMin,
