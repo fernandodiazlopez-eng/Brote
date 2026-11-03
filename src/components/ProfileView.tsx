@@ -76,6 +76,7 @@ interface ProfileViewProps {
   bugMood?: BugGlobalMood;
   canPetBug?: boolean;
   canLaunchBugHockey?: boolean;
+  onOpenTutorial?: () => void;
 }
 
 interface RoutineTransferDragState {
@@ -135,6 +136,7 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
   bugMood = 'none',
   canPetBug = false,
   canLaunchBugHockey = false,
+  onOpenTutorial,
 }) => {
   const { language, locale, t, formatCategory } = useI18n();
   const formatKmValue = (km: number) => {
@@ -466,7 +468,7 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
           type="button"
           onClick={() => setIsPointsInfoOpen(true)}
           aria-label={t.info_title}
-          className="min-h-[36px] min-w-[36px] -ml-1.5 flex items-center justify-center text-fg-secondary hover:text-fg active:scale-95 transition cursor-pointer focus-visible:outline-none focus-visible:text-accent"
+          className="min-h-[40px] min-w-[40px] -ml-2 flex items-center justify-center text-fg-secondary active:scale-95 transition cursor-pointer focus-visible:outline-none focus-visible:text-accent"
         >
           <Info className="w-[18px] h-[18px]" />
         </button>
@@ -475,14 +477,17 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
           type="button"
           onClick={() => setIsSettingsOpen(true)}
           aria-label={t.settings_title}
-          className="min-h-[36px] min-w-[36px] -mr-1.5 flex items-center justify-center text-fg-secondary hover:text-fg active:scale-95 transition cursor-pointer focus-visible:outline-none focus-visible:text-accent"
+          className="min-h-[40px] min-w-[40px] -mr-2 flex items-center justify-center text-fg-secondary active:scale-95 transition cursor-pointer focus-visible:outline-none focus-visible:text-accent"
         >
           <Settings className="w-[18px] h-[18px]" />
         </button>
       </header>
 
       {/* 2. MÓDULO DE NIVEL + ESQUEMA + BARRA DE NIVELES + XP CENTRADO */}
-      <section className="sheet-panel ndot-surface px-4 py-3.5 sm:px-5 sm:py-4 flex flex-col gap-2.5">
+      <section
+        data-tutorial="profile-level"
+        className="sheet-panel ndot-surface px-4 py-3.5 sm:px-5 sm:py-4 flex flex-col gap-2.5"
+      >
         <h1 className="font-display text-xl sm:text-2xl font-bold leading-none tracking-wide text-fg text-center tabular-nums">
           {t.profile_level_prefix} {level}
         </h1>
@@ -623,7 +628,10 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
 
       {/* 4. AGENDA SEMANAL + CRONÓGRAFO DE PASOS */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-        <section className="lg:col-span-7 sheet-panel p-4 sm:p-5 space-y-4">
+        <section
+          data-tutorial="profile-week"
+          className="lg:col-span-7 sheet-panel p-4 sm:p-5 space-y-4"
+        >
           {isWeekend && (
             <div
               role="group"
@@ -743,7 +751,7 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
                       ? 'bg-accent-fill text-accent-fg border-transparent font-bold'
                       : isToday
                       ? 'bg-canvas text-fg border-strong'
-                      : 'bg-canvas/50 border-subtle text-fg-secondary hover:bg-elevated hover:text-fg'
+                      : 'bg-canvas/50 border-subtle text-fg-secondary hover:bg-elevated'
                   }`}
                 >
                   <span className="font-display text-[11px] uppercase tracking-wider font-semibold">
@@ -1114,6 +1122,7 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
       <PointsSystemInfoModal
         isOpen={isPointsInfoOpen}
         onClose={() => setIsPointsInfoOpen(false)}
+        onOpenTutorial={onOpenTutorial}
       />
 
       <ProfileSettingsModal
@@ -1132,6 +1141,7 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
         isBugUnlocked={isBugUnlocked}
         hideBug={hideBug}
         onChangeHideBug={onChangeHideBug}
+        onOpenTutorial={onOpenTutorial}
       />
 
       {/* Modal para asignar o quitar rutinas del día seleccionado */}

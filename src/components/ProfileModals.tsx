@@ -11,6 +11,7 @@ import {
   ArrowLeft,
   Check,
   ChevronRight,
+  Compass,
   Download,
   Globe,
   Moon,
@@ -47,11 +48,13 @@ import { BugPixelGraphic } from './BugCompanion';
 interface PointsSystemInfoModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onOpenTutorial?: () => void;
 }
 
 export const PointsSystemInfoModal: React.FC<PointsSystemInfoModalProps> = ({
   isOpen,
   onClose,
+  onOpenTutorial,
 }) => {
   const { t } = useI18n();
 
@@ -103,6 +106,22 @@ export const PointsSystemInfoModal: React.FC<PointsSystemInfoModalProps> = ({
             <p key={index}>{paragraph}</p>
           ))}
         </div>
+
+        {onOpenTutorial && (
+          <div className="mt-5 pt-4 border-t border-subtle">
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenTutorial();
+              }}
+              className="btn-secondary w-full min-h-[42px] px-3.5 py-2 text-xs flex items-center justify-center gap-2 whitespace-nowrap"
+            >
+              <Compass className="w-4 h-4 text-accent shrink-0" />
+              <span>{t.tutorial_open_btn}</span>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -226,6 +245,7 @@ interface ProfileSettingsModalProps {
   isBugUnlocked?: boolean;
   hideBug?: boolean;
   onChangeHideBug?: (hide: boolean) => void;
+  onOpenTutorial?: () => void;
 }
 
 export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
@@ -244,6 +264,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   isBugUnlocked = false,
   hideBug = false,
   onChangeHideBug,
+  onOpenTutorial,
 }) => {
   const {
     language,
@@ -267,7 +288,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const colorPickerInputRef = useRef<HTMLInputElement | null>(null);
 
   const [draftCustomHex, setDraftCustomHex] = useState<string>(() =>
-    (customAccentHex || '#f5b427').toUpperCase()
+    (customAccentHex || '#c8ff00').toUpperCase()
   );
   const [showCustomHexError, setShowCustomHexError] = useState(false);
 
@@ -296,13 +317,13 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
       setShowIOSInstallGuide(false);
       setBackupFeedback(null);
       setShowCustomHexError(false);
-      setDraftCustomHex((customAccentHex || '#f5b427').toUpperCase());
+      setDraftCustomHex((customAccentHex || '#c8ff00').toUpperCase());
     }
   }, [isOpen, customAccentHex]);
 
   useEffect(() => {
     const validDraft = normalizeHexColor(draftCustomHex);
-    setCustomDraftSwatchProperty(validDraft || customAccentHex || '#f5b427');
+    setCustomDraftSwatchProperty(validDraft || customAccentHex || '#c8ff00');
   }, [draftCustomHex, customAccentHex]);
 
   useEffect(() => {
@@ -357,26 +378,39 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   );
 
   const filteredTextSections = useMemo(() => {
-    const normalizedQuery = textSearchQuery.trim().toLowerCase();
-    if (!normalizedQuery) return UI_TEXT_SECTIONS;
-
-    return UI_TEXT_SECTIONS.map((section) => {
-      const matchingFields = section.fields.filter((field) => {
-        const metaLabel = language === 'en' ? field.labelEn : field.labelEs;
-        const currentText = t[field.key];
-        const defaultText = defaultT[field.key];
-        return (
-          metaLabel.toLowerCase().includes(normalizedQuery) ||
-          currentText.toLowerCase().includes(normalizedQuery) ||
-          defaultText.toLowerCase().includes(normalizedQuery)
+    const visibleSections = isBugUnlocked
+      ? UI_TEXT_SECTIONS
+      : UI_TEXT_SECTIONS.filter((section) => section.id !== 'bug_phrases').map((section) =>
+          section.id === 'settings'
+            ? {
+                ...section,
+                fields: section.fields.filter((f) => !f.key.startsWith('settings_bug_')),
+              }
+            : section
         );
-      });
-      return {
-        ...section,
-        fields: matchingFields,
-      };
-    }).filter((section) => section.fields.length > 0);
-  }, [textSearchQuery, language, t, defaultT]);
+
+    const normalizedQuery = textSearchQuery.trim().toLowerCase();
+    if (!normalizedQuery) return visibleSections;
+
+    return visibleSections
+      .map((section) => {
+        const matchingFields = section.fields.filter((field) => {
+          const metaLabel = language === 'en' ? field.labelEn : field.labelEs;
+          const currentText = t[field.key];
+          const defaultText = defaultT[field.key];
+          return (
+            metaLabel.toLowerCase().includes(normalizedQuery) ||
+            currentText.toLowerCase().includes(normalizedQuery) ||
+            defaultText.toLowerCase().includes(normalizedQuery)
+          );
+        });
+        return {
+          ...section,
+          fields: matchingFields,
+        };
+      })
+      .filter((section) => section.fields.length > 0);
+  }, [isBugUnlocked, textSearchQuery, language, t, defaultT]);
 
   if (!isOpen) return null;
 
@@ -395,12 +429,12 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
     swatchClass: string;
     fullSpan?: boolean;
   }[] = [
+    { id: 'lima', label: t.palette_lima, swatchClass: 'palette-dot-lima' },
     { id: 'ambar', label: t.palette_ambar, swatchClass: 'palette-dot-ambar' },
     { id: 'coral', label: t.palette_coral, swatchClass: 'palette-dot-coral' },
     { id: 'monocromo', label: monochromeLabel, swatchClass: 'palette-dot-monocromo' },
     { id: 'frambuesa', label: t.palette_frambuesa, swatchClass: 'palette-dot-frambuesa' },
     { id: 'oceano', label: t.palette_oceano, swatchClass: 'palette-dot-oceano' },
-    { id: 'lima', label: t.palette_lima, swatchClass: 'palette-dot-lima' },
     { id: 'amatista', label: t.palette_amatista, swatchClass: 'palette-dot-amatista' },
     { id: 'esmeralda', label: t.palette_esmeralda, swatchClass: 'palette-dot-esmeralda' },
     ...(normalizedCustomSaved
@@ -660,7 +694,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                       } ${
                         isSelected
                           ? 'bg-accent-soft border-accent-fill text-fg font-semibold'
-                          : 'bg-canvas border-subtle text-fg-secondary hover:text-fg'
+                          : 'bg-canvas border-subtle text-fg-secondary'
                       }`}
                     >
                       <div className="flex items-center gap-2 min-w-0">
@@ -677,7 +711,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               </div>
             </div>
 
-            {/* Visibilidad de Bug (aparece en Ajustes únicamente tras desbloquearlo en Nivel 10) */}
+            {/* Visibilidad de Bug (aparece en Ajustes únicamente tras desbloquearlo en Nivel 3) */}
             {isBugUnlocked && onChangeHideBug && (
               <div className="space-y-2">
                 <div className="flex items-center gap-1.5">
@@ -769,8 +803,27 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               </div>
             )}
 
-            {/* Acceso a Ajustes Avanzados */}
-            <div className="pt-3 border-t border-subtle">
+            {/* Tutorial interactivo + Acceso a Ajustes Avanzados */}
+            <div className="pt-3 border-t border-subtle space-y-2.5">
+              {onOpenTutorial && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenTutorial();
+                  }}
+                  className="btn-secondary w-full min-h-[44px] px-3.5 py-2 flex items-center justify-between gap-3 text-left"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Compass className="w-4 h-4 text-accent shrink-0" />
+                    <span className="text-sm font-semibold text-fg truncate">
+                      {t.tutorial_open_btn}
+                    </span>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-fg-muted shrink-0" />
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => {
@@ -823,7 +876,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                   type="color"
                   tabIndex={-1}
                   aria-hidden="true"
-                  value={normalizedDraftCustomHex || normalizedCustomSaved || '#f5b427'}
+                  value={normalizedDraftCustomHex || normalizedCustomSaved || '#c8ff00'}
                   onChange={(e) => {
                     const picked = normalizeHexColor(e.target.value);
                     if (picked) {

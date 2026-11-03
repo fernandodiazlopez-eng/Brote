@@ -241,7 +241,7 @@ export const DEFAULT_ES_TEXTS = {
   settings_ios_install_step2: '2. Desliza hacia abajo y pulsa Añadir a pantalla de inicio.',
   settings_advanced_btn: 'Ajustes avanzados',
   advanced_custom_color_heading: 'Color por código (HEX)',
-  advanced_custom_color_placeholder: '#F5B427',
+  advanced_custom_color_placeholder: '#C8FF00',
   advanced_custom_color_apply_btn: 'Aplicar',
   advanced_custom_color_active_btn: 'Activo',
   advanced_custom_color_error: 'Código no válido (usa formato #RRGGBB, ej. #FF5500)',
@@ -260,6 +260,28 @@ export const DEFAULT_ES_TEXTS = {
   advanced_backup_import_btn: 'Importar datos',
   advanced_backup_success: 'Copia de seguridad restaurada',
   advanced_backup_error: 'Archivo de copia no válido',
+
+  // 10. Tutorial Interactivo de Bienvenida
+  tutorial_open_btn: 'Ver tutorial interactivo',
+  tutorial_skip_btn: 'Saltar',
+  tutorial_prev_btn: 'Anterior',
+  tutorial_next_btn: 'Siguiente',
+  tutorial_finish_btn: 'Empezar',
+  tutorial_s1_title: 'Tu nivel y mapa muscular',
+  tutorial_s1_body:
+    'En Perfil ves tu nivel actual, tu barra de XP y el mapa con los músculos que has trabajado.',
+  tutorial_s2_title: 'Organiza tu semana',
+  tutorial_s2_body:
+    'Asigna tus rutinas creadas a cada día. En futuras semanas puedes repetir la misma rutina semanal anterior, y manteniendo pulsada una rutina puedes arrastrarla al día que quieras.',
+  tutorial_s3_title: 'Rueda de pasos',
+  tutorial_s3_body:
+    'Gira la rueda para ajustar tus pasos diarios hasta 10.000. Si haces más o quieres poner una cifra exacta, pulsa directamente en el número.',
+  tutorial_s4_title: 'Crea e inicia tus rutinas',
+  tutorial_s4_body:
+    'En Rutinas puedes crear entrenamientos de Cardio, Fuerza o Híbridas. Una vez creadas, puedes iniciarlas tanto desde Rutinas como desde Perfil.',
+  tutorial_s5_title: 'Perfil y estadísticas en vivo',
+  tutorial_s5_body:
+    'Cada vez que completes una rutina o sumes pasos, se actualizarán automáticamente tu Perfil, tus gráficas de Estadísticas y tus trofeos.',
 } as const;
 
 export type UiTextKey = keyof typeof DEFAULT_ES_TEXTS;
@@ -498,7 +520,7 @@ export const DEFAULT_EN_TEXTS: UiTextsMap = {
   settings_ios_install_step2: '2. Scroll down and tap Add to Home Screen.',
   settings_advanced_btn: 'Advanced settings',
   advanced_custom_color_heading: 'Color by code (HEX)',
-  advanced_custom_color_placeholder: '#F5B427',
+  advanced_custom_color_placeholder: '#C8FF00',
   advanced_custom_color_apply_btn: 'Apply',
   advanced_custom_color_active_btn: 'Active',
   advanced_custom_color_error: 'Invalid code (use #RRGGBB format, e.g. #FF5500)',
@@ -517,6 +539,28 @@ export const DEFAULT_EN_TEXTS: UiTextsMap = {
   advanced_backup_import_btn: 'Import backup',
   advanced_backup_success: 'Backup restored successfully',
   advanced_backup_error: 'Invalid backup file',
+
+  // 10. Interactive Onboarding Tutorial
+  tutorial_open_btn: 'View interactive tutorial',
+  tutorial_skip_btn: 'Skip',
+  tutorial_prev_btn: 'Back',
+  tutorial_next_btn: 'Next',
+  tutorial_finish_btn: 'Start',
+  tutorial_s1_title: 'Your level & muscle map',
+  tutorial_s1_body:
+    'In Profile you see your current level, your XP bar, and the map of your worked muscles.',
+  tutorial_s2_title: 'Organize your week',
+  tutorial_s2_body:
+    'Assign your created routines to any day. In future weeks you can reuse the previous week schedule, and by dragging routines you can move them to whichever day you want.',
+  tutorial_s3_title: 'Daily steps wheel',
+  tutorial_s3_body:
+    'Spin the wheel to adjust your steps up to 10,000. To log more steps or enter an exact count, tap directly on the number.',
+  tutorial_s4_title: 'Create & start routines',
+  tutorial_s4_body:
+    'In Routines you can create Cardio, Strength, or Hybrid workouts. Once created, you can start them from either Routines or Profile.',
+  tutorial_s5_title: 'Live profile & statistics',
+  tutorial_s5_body:
+    'Once routines are completed or steps are logged, your Profile, Statistics charts, and trophies update automatically.',
 };
 
 export const DEFAULT_UI_TEXTS: Record<AppLanguage, UiTextsMap> = {
@@ -825,6 +869,28 @@ export const UI_TEXT_SECTIONS: UiTextSectionMeta[] = [
       { key: 'advanced_backup_import_btn', labelEs: 'Botón Importar datos', labelEn: 'Import backup button' },
       { key: 'advanced_backup_success', labelEs: 'Aviso copia restaurada', labelEn: 'Backup restored notice' },
       { key: 'advanced_backup_error', labelEs: 'Aviso error de archivo', labelEn: 'Invalid backup notice' },
+    ],
+  },
+  {
+    id: 'tutorial',
+    titleEs: 'Tutorial de bienvenida',
+    titleEn: 'Welcome tutorial',
+    fields: [
+      { key: 'tutorial_open_btn', labelEs: 'Botón abrir tutorial', labelEn: 'Open tutorial button' },
+      { key: 'tutorial_skip_btn', labelEs: 'Botón Saltar tutorial', labelEn: 'Skip tutorial button' },
+      { key: 'tutorial_prev_btn', labelEs: 'Botón paso anterior', labelEn: 'Previous step button' },
+      { key: 'tutorial_next_btn', labelEs: 'Botón siguiente paso', labelEn: 'Next step button' },
+      { key: 'tutorial_finish_btn', labelEs: 'Botón finalizar tutorial', labelEn: 'Finish tutorial button' },
+      { key: 'tutorial_s1_title', labelEs: 'Paso 1 título (Nivel)', labelEn: 'Step 1 title (Level)' },
+      { key: 'tutorial_s1_body', labelEs: 'Paso 1 explicación', labelEn: 'Step 1 body', multiline: true },
+      { key: 'tutorial_s2_title', labelEs: 'Paso 2 título (Semana)', labelEn: 'Step 2 title (Week)' },
+      { key: 'tutorial_s2_body', labelEs: 'Paso 2 explicación', labelEn: 'Step 2 body', multiline: true },
+      { key: 'tutorial_s3_title', labelEs: 'Paso 3 título (Pasos)', labelEn: 'Step 3 title (Steps)' },
+      { key: 'tutorial_s3_body', labelEs: 'Paso 3 explicación', labelEn: 'Step 3 body', multiline: true },
+      { key: 'tutorial_s4_title', labelEs: 'Paso 4 título (Rutinas)', labelEn: 'Step 4 title (Routines)' },
+      { key: 'tutorial_s4_body', labelEs: 'Paso 4 explicación', labelEn: 'Step 4 body', multiline: true },
+      { key: 'tutorial_s5_title', labelEs: 'Paso 5 título (Estadísticas)', labelEn: 'Step 5 title (Statistics)' },
+      { key: 'tutorial_s5_body', labelEs: 'Paso 5 explicación', labelEn: 'Step 5 body', multiline: true },
     ],
   },
 ];

@@ -185,7 +185,7 @@ export const MuscleGroupSelect: React.FC<MuscleGroupSelectProps> = ({
               className={`w-full min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-between gap-2 text-left transition cursor-pointer ${
                 value.length === 0
                   ? 'bg-accent-soft text-fg font-semibold'
-                  : 'text-fg-muted hover:bg-elevated hover:text-fg'
+                  : 'text-fg-muted hover:bg-elevated'
               }`}
             >
               <span className="truncate">{t.editor_muscle_none}</span>
@@ -208,7 +208,7 @@ export const MuscleGroupSelect: React.FC<MuscleGroupSelectProps> = ({
                   className={`w-full min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-between gap-2 text-left transition cursor-pointer ${
                     isSelected
                       ? 'bg-accent-soft text-fg font-semibold'
-                      : 'text-fg-secondary hover:bg-elevated hover:text-fg'
+                      : 'text-fg-secondary hover:bg-elevated'
                   }`}
                 >
                   <span className="truncate">{opt.label}</span>

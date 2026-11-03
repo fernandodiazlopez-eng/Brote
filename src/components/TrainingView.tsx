@@ -867,6 +867,7 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
 
   return (
     <div className="max-w-3xl mx-auto space-y-5">
+      <div data-tutorial="training-overview" className="space-y-5">
       <div className="relative flex items-center justify-between gap-3 pb-3 border-b border-subtle">
         <h1 className="text-2xl font-bold uppercase tracking-wide text-fg">{t.training_title}</h1>
 
@@ -991,6 +992,7 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
           })}
         </div>
       )}
+      </div>
 
       {/* Modal: Crear / Editar Rutina */}
       {isEditorOpen && (

@@ -38,14 +38,27 @@
     <script>
       (function () {
         try {
-          var raw =
-            localStorage.getItem('upgrade_app_state_v3') ||
-            localStorage.getItem('brote_app_state_v2') ||
-            localStorage.getItem('kinetix_app_state_v2');
+          var legacyKeys = [
+            'upgrade_app_state_v4',
+            'upgrade_workout_session_v4',
+            'upgrade_app_state_v3',
+            'upgrade_workout_session_v3',
+            'brote_app_state_v2',
+            'brote_workout_session_v2',
+            'kinetix_app_state_v2',
+            'kinetix_workout_session_v2',
+            'fitness_rpg_real_calendar_v1',
+            'fitness_rpg_active_session_v1',
+          ];
+          for (var i = 0; i < legacyKeys.length; i++) {
+            localStorage.removeItem(legacyKeys[i]);
+          }
+          var raw = localStorage.getItem('upgrade_app_state_v5');
           var parsed = raw ? JSON.parse(raw) : null;
           var isLight = parsed && parsed.themeMode === 'light';
           var root = document.documentElement;
           root.dataset.themeMode = isLight ? 'light' : 'dark';
+          root.dataset.palette = (parsed && parsed.accentPalette) || 'lima';
           root.classList.toggle('dark', !isLight);
           var metaTheme = document.querySelector('meta[name="theme-color"]');
           if (metaTheme) metaTheme.setAttribute('content', isLight ? '#eeeeec' : '#08080a');

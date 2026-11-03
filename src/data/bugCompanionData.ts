@@ -62,22 +62,41 @@ export function getBugMilestoneCopy(
   milestone: BugUnlockMilestone,
   language: AppLanguage
 ): BugMilestoneCardCopy {
-  if (milestone === 'level10') {
+  if (milestone === 'level3') {
     if (language === 'en') {
       return {
-        kickerLeft: 'LEVEL 10',
+        kickerLeft: 'LEVEL 3',
         kickerRight: 'BUG DETECTED',
         title: 'A BUG WAS FOUND!',
         description:
-          'Meet Bug, your new 8-bit mascot. It rests across the app—double-tap it anytime to pet it.',
+          'Meet Bug, your new 8-bit mascot. It will keep you company across the app (you can hide it in Settings).',
       };
     }
     return {
-      kickerLeft: 'NIVEL 10',
+      kickerLeft: 'NIVEL 3',
       kickerRight: 'ANOMALÍA DETECTADA',
       title: '¡SE HA ENCONTRADO UN BUG!',
       description:
-        'Es Bug, tu nueva mascota 8-bits. Te acompañará por la interfaz y puedes acariciarlo con doble toque.',
+        'Es Bug, tu nueva mascota 8-bits. Te acompañará por la interfaz (puedes ocultarlo desde Ajustes).',
+    };
+  }
+
+  if (milestone === 'level5') {
+    if (language === 'en') {
+      return {
+        kickerLeft: 'LEVEL 5',
+        kickerRight: 'MASCOT BOND',
+        title: 'YOU CAN NOW PET BUG!',
+        description:
+          'Double-tap Bug on any screen to pet it and spark a happy 8-bit reaction.',
+      };
+    }
+    return {
+      kickerLeft: 'NIVEL 5',
+      kickerRight: 'AFECTO DESBLOQUEADO',
+      title: '¡YA PUEDES ACARICIAR A BUG!',
+      description:
+        'Haz doble toque sobre Bug en cualquier pantalla para acariciarlo y ver su reacción.',
     };
   }
 

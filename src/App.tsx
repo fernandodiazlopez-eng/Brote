@@ -27,6 +27,7 @@ import {
   BugUnlockBanner,
 } from './components/BugCompanion';
 import { FirstLaunchLanguageModal } from './components/FirstLaunchLanguageModal';
+import { OnboardingTutorial } from './components/OnboardingTutorial';
 import { ProfileView } from './components/ProfileView';
 import { StatsView } from './components/StatsView';
 import { TrainingView } from './components/TrainingView';
@@ -118,10 +119,16 @@ export default function App() {
   const initialSession = hydratedSessionRef.current;
 
   const [activeTab, setActiveTab] = useState<AppTab>(initialSession.activeTab);
+  const [manualTutorialOpen, setManualTutorialOpen] = useState<boolean>(false);
+  const isTutorialOpen =
+    manualTutorialOpen ||
+    (appState.hasSelectedInitialLanguage && !appState.hasCompletedTutorial);
+
   const [trophyQueue, setTrophyQueue] = useState<Trophy[]>([]);
   const [bugMilestoneQueue, setBugMilestoneQueue] = useState<BugUnlockMilestone[]>([]);
-  const currentTrophyBanner = trophyQueue[0] || null;
-  const currentBugBanner = !currentTrophyBanner ? bugMilestoneQueue[0] || null : null;
+  const currentTrophyBanner = !isTutorialOpen ? trophyQueue[0] || null : null;
+  const currentBugBanner =
+    !isTutorialOpen && !currentTrophyBanner ? bugMilestoneQueue[0] || null : null;
 
   // Estado reactivo de Bug (mascota 8-bits) y su carrusel luminoso de metro
   const [bugMood, setBugMood] = useState<BugGlobalMood>('none');
@@ -189,7 +196,9 @@ export default function App() {
     currentLevel >= MAX_LEVEL ? MAX_TOTAL_XP : getMinXpForLevel(currentLevel + 1);
 
   const isBugUnlocked =
-    Boolean(appState.bugUnlockedAtIso) || currentLevel >= 10 || peakLevel >= 10;
+    Boolean(appState.bugUnlockedAtIso) || currentLevel >= 3 || peakLevel >= 3;
+  const isBugPetUnlocked =
+    Boolean(appState.bugPetUnlockedAtIso) || currentLevel >= 5 || peakLevel >= 5;
   const isBugHockeyUnlocked =
     Boolean(appState.bugHockeyUnlockedAtIso) || currentLevel >= 50 || peakLevel >= 50;
   const hideBug = Boolean(appState.hideBug);
@@ -341,20 +350,23 @@ export default function App() {
     setTrophyQueue((prev) => prev.slice(1));
   }, []);
 
-  // --- 4B. Desbloqueos de Bug (Nivel 10: Mascota y Doble Tap · Nivel 50: Física Air Hockey) y saludo al abrir ---
+  // --- 4B. Desbloqueos de Bug (Nivel 3: Mascota · Nivel 5: Acariciar · Nivel 50: Física Air Hockey) y saludo al abrir ---
   useEffect(() => {
     if (!appState.hasSelectedInitialLanguage) return;
 
-    const reachedLvl10 = currentLevel >= 10 || peakLevel >= 10;
+    const reachedLvl3 = currentLevel >= 3 || peakLevel >= 3;
+    const reachedLvl5 = currentLevel >= 5 || peakLevel >= 5;
     const reachedLvl50 = currentLevel >= 50 || peakLevel >= 50;
-    const needLvl10 = reachedLvl10 && !appState.bugUnlockedAtIso;
+    const needLvl3 = reachedLvl3 && !appState.bugUnlockedAtIso;
+    const needLvl5 = reachedLvl5 && !appState.bugPetUnlockedAtIso;
     const needLvl50 = reachedLvl50 && !appState.bugHockeyUnlockedAtIso;
 
-    if (!needLvl10 && !needLvl50) return;
+    if (!needLvl3 && !needLvl5 && !needLvl50) return;
 
     setAppState((prev) => ({
       ...prev,
-      ...(needLvl10 && !prev.bugUnlockedAtIso ? { bugUnlockedAtIso: todayIso } : {}),
+      ...(needLvl3 && !prev.bugUnlockedAtIso ? { bugUnlockedAtIso: todayIso } : {}),
+      ...(needLvl5 && !prev.bugPetUnlockedAtIso ? { bugPetUnlockedAtIso: todayIso } : {}),
       ...(needLvl50 && !prev.bugHockeyUnlockedAtIso
         ? { bugHockeyUnlockedAtIso: todayIso }
         : {}),
@@ -362,13 +374,15 @@ export default function App() {
 
     setBugMilestoneQueue((prev) => {
       const next = [...prev];
-      if (needLvl10 && !next.includes('level10')) next.push('level10');
+      if (needLvl3 && !next.includes('level3')) next.push('level3');
+      if (needLvl5 && !next.includes('level5')) next.push('level5');
       if (needLvl50 && !next.includes('level50')) next.push('level50');
       return next;
     });
   }, [
     appState.hasSelectedInitialLanguage,
     appState.bugUnlockedAtIso,
+    appState.bugPetUnlockedAtIso,
     appState.bugHockeyUnlockedAtIso,
     currentLevel,
     peakLevel,
@@ -1055,7 +1069,7 @@ export default function App() {
       estNextRoutineXp;
     const willShowBug =
       !snap.hideBug &&
-      (isBugUnlocked || estNextTotalXp >= getMinXpForLevel(10));
+      (isBugUnlocked || estNextTotalXp >= getMinXpForLevel(3));
 
     if (willShowBug) {
       triggerBugQuickReaction(snap.language);
@@ -1458,12 +1472,40 @@ export default function App() {
   }, []);
 
   const handleSelectInitialLanguage = useCallback((chosenLanguage: AppLanguage) => {
+    setActiveTab(AppTab.PROFILE);
     setAppState((prev) => {
       const updatedState: AppPersistentState = {
         ...prev,
         language: chosenLanguage,
         hasSelectedInitialLanguage: true,
         xpFormulas: localizeXpFormulasIfDefault(prev.xpFormulas, chosenLanguage),
+      };
+      try {
+        window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(updatedState));
+      } catch {
+        // Ignorar límites de almacenamiento
+      }
+      return updatedState;
+    });
+  }, []);
+
+  const handleOpenTutorial = useCallback(() => {
+    setSelectedDateIso(getTodayDateIso());
+    setActiveTab(AppTab.PROFILE);
+    setManualTutorialOpen(true);
+  }, []);
+
+  const handleCloseTutorial = useCallback(() => {
+    setManualTutorialOpen(false);
+    setActiveTab(AppTab.PROFILE);
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    setAppState((prev) => {
+      if (prev.hasCompletedTutorial) return prev;
+      const updatedState: AppPersistentState = {
+        ...prev,
+        hasCompletedTutorial: true,
       };
       try {
         window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(updatedState));
@@ -1667,7 +1709,7 @@ export default function App() {
       );
       const willShowBug =
         !snap.hideBug &&
-        (isBugUnlocked || snap.settledTotalXp + nextDayTotalXp >= getMinXpForLevel(10));
+        (isBugUnlocked || snap.settledTotalXp + nextDayTotalXp >= getMinXpForLevel(3));
 
       if (safeSteps > previousSteps && willShowBug) {
         triggerBugQuickReaction(snap.language);
@@ -1734,6 +1776,14 @@ export default function App() {
           onSelectLanguage={handleSelectInitialLanguage}
         />
 
+        {/* Tutorial interactivo guiado sobre la propia interfaz en el primer inicio (o bajo demanda) */}
+        <OnboardingTutorial
+          isOpen={isTutorialOpen}
+          activeTab={activeTab}
+          onSelectTab={handleSelectTab}
+          onClose={handleCloseTutorial}
+        />
+
         {/* Notificación superior de Trofeo Desbloqueado */}
         {currentTrophyBanner && !isAlarmRinging && (
           <TrophyUnlockBanner
@@ -1743,7 +1793,7 @@ export default function App() {
           />
         )}
 
-        {/* Notificación superior de Desbloqueo de Bug (Nivel 10 y Nivel 50) */}
+        {/* Notificación superior de Desbloqueo de Bug (Nivel 3, Nivel 5 y Nivel 50) */}
         {currentBugBanner && !currentTrophyBanner && !isAlarmRinging && (
           <BugUnlockBanner
             key={currentBugBanner}
@@ -1753,7 +1803,7 @@ export default function App() {
         )}
 
         {/* Carrusel luminoso de metro de Bug (sin bocadillos; solo se activa en eventos específicos) */}
-        {showBug && bugMarquee && (
+        {showBug && bugMarquee && !isTutorialOpen && (
           <BugSubwayMarquee
             message={bugMarquee.text}
             messageId={bugMarquee.id}
@@ -1825,7 +1875,9 @@ export default function App() {
               xpFormulas={appState.xpFormulas}
               routines={appState.routines}
               trashedRoutines={appState.trashedRoutines}
-              activeSessionRoutine={isSessionViewOpen ? activeSessionRoutine : null}
+              activeSessionRoutine={
+                isSessionViewOpen && !isTutorialOpen ? activeSessionRoutine : null
+              }
               sessionFullXp={sessionFullXp}
               checkedExercises={checkedExercises}
               onToggleExerciseCheck={handleToggleExerciseCheck}
@@ -1850,7 +1902,7 @@ export default function App() {
               onPermanentDeleteRoutine={handlePermanentDeleteRoutine}
               showBug={showBug}
               bugMood={bugMood}
-              canPetBug={isBugUnlocked}
+              canPetBug={isBugPetUnlocked}
               canLaunchBugHockey={isBugHockeyUnlocked}
             />
           )}
@@ -1898,8 +1950,9 @@ export default function App() {
               onChangeHideBug={handleChangeHideBug}
               showBug={showBug}
               bugMood={bugMood}
-              canPetBug={isBugUnlocked}
+              canPetBug={isBugPetUnlocked}
               canLaunchBugHockey={isBugHockeyUnlocked}
+              onOpenTutorial={handleOpenTutorial}
             />
           )}
 
@@ -1916,7 +1969,7 @@ export default function App() {
               unlockedTrophies={appState.unlockedTrophies}
               showBug={showBug}
               bugMood={bugMood}
-              canPetBug={isBugUnlocked}
+              canPetBug={isBugPetUnlocked}
               canLaunchBugHockey={isBugHockeyUnlocked}
             />
           )}

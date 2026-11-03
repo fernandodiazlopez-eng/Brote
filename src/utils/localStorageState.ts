@@ -39,27 +39,32 @@ import {
   sanitizeMuscleGroups,
 } from './muscleRecovery';
 
-export const APP_STATE_STORAGE_KEY = 'upgrade_app_state_v3';
-export const WORKOUT_SESSION_STORAGE_KEY = 'upgrade_workout_session_v3';
+export const APP_STATE_STORAGE_KEY = 'upgrade_app_state_v5';
+export const WORKOUT_SESSION_STORAGE_KEY = 'upgrade_workout_session_v5';
 
-// Claves anteriores para migración transparente sin perder progreso
-const PREVIOUS_BROTE_STATE_KEY = 'brote_app_state_v2';
-const PREVIOUS_BROTE_SESSION_KEY = 'brote_workout_session_v2';
-const PREVIOUS_KINETIX_STATE_KEY = 'kinetix_app_state_v2';
-const PREVIOUS_KINETIX_SESSION_KEY = 'kinetix_workout_session_v2';
-const LEGACY_STATE_KEY = 'fitness_rpg_real_calendar_v1';
-const LEGACY_SESSION_KEY = 'fitness_rpg_active_session_v1';
+const OBSOLETE_STORAGE_KEYS = [
+  'upgrade_app_state_v4',
+  'upgrade_workout_session_v4',
+  'upgrade_app_state_v3',
+  'upgrade_workout_session_v3',
+  'brote_app_state_v2',
+  'brote_workout_session_v2',
+  'kinetix_app_state_v2',
+  'kinetix_workout_session_v2',
+  'fitness_rpg_real_calendar_v1',
+  'fitness_rpg_active_session_v1',
+] as const;
 
 export const MAX_STOPWATCH_MS = 12 * 3600 * 1000;
 const RECENT_ALARM_WINDOW_MS = 5 * 60 * 1000;
 
 const VALID_ACCENT_PALETTES: readonly AccentPaletteId[] = [
+  'lima',
   'ambar',
   'coral',
   'monocromo',
   'frambuesa',
   'oceano',
-  'lima',
   'amatista',
   'esmeralda',
   'custom',
@@ -166,7 +171,7 @@ export function applyThemeToDocument(
   const isLight = mode === 'light';
   const validCustomHex = normalizeHexColor(customAccentHex);
   const effectivePalette: AccentPaletteId =
-    palette === 'custom' && !validCustomHex ? 'ambar' : palette;
+    palette === 'custom' && !validCustomHex ? 'lima' : palette;
 
   root.dataset.themeMode = mode;
   root.dataset.palette = effectivePalette;
@@ -299,9 +304,10 @@ export function createInitialAppState(todayIso: string): AppPersistentState {
     settledInactiveDays: 0,
     stepGoal: 10_000,
     themeMode: 'dark',
-    accentPalette: 'ambar',
+    accentPalette: 'lima',
     language: 'es',
     hasSelectedInitialLanguage: false,
+    hasCompletedTutorial: false,
     customTexts: {},
     xpFormulas: { ...DEFAULT_XP_FORMULAS },
     routines: [],
@@ -637,6 +643,23 @@ export function hydrateSanitizedAppState(
         )
       : Math.min(MAX_LEVEL, Math.max(hydratedPeakLevel, settledContinuous));
 
+  const sanitizedRoutines = sanitizeRoutinesList(parsed.routines, formulas);
+  const sanitizedTrashedRoutines = sanitizeRoutinesList(parsed.trashedRoutines, formulas);
+  const sanitizedDaysByIso = sanitizeDaysByIso(parsed.daysByIso);
+  const hasExistingActivity =
+    safeSettledXp > 0 ||
+    sanitizedRoutines.length > 0 ||
+    Object.keys(sanitizedDaysByIso).length > 0;
+
+  const resolvedBugUnlockedAtIso = isIsoDateString(parsed.bugUnlockedAtIso)
+    ? parsed.bugUnlockedAtIso
+    : undefined;
+  const resolvedBugPetUnlockedAtIso = isIsoDateString(parsed.bugPetUnlockedAtIso)
+    ? parsed.bugPetUnlockedAtIso
+    : resolvedBugUnlockedAtIso && hydratedPeakLevel >= 5
+    ? resolvedBugUnlockedAtIso
+    : undefined;
+
   const hydrated: AppPersistentState = {
     ...createInitialAppState(todayIso),
     firstOpenDateIso: isIsoDateString(parsed.firstOpenDateIso)
@@ -663,8 +686,8 @@ export function hydrateSanitizedAppState(
     themeMode: parsed.themeMode === 'light' ? 'light' : 'dark',
     accentPalette: (() => {
       const customHex = normalizeHexColor(parsed.customAccentHex);
-      if (!isValidAccentPalette(parsed.accentPalette)) return 'ambar';
-      if (parsed.accentPalette === 'custom' && !customHex) return 'ambar';
+      if (!isValidAccentPalette(parsed.accentPalette)) return 'lima';
+      if (parsed.accentPalette === 'custom' && !customHex) return 'lima';
       return parsed.accentPalette;
     })(),
     ...(normalizeHexColor(parsed.customAccentHex)
@@ -672,17 +695,20 @@ export function hydrateSanitizedAppState(
       : {}),
     language: parsed.language === 'en' ? 'en' : 'es',
     hasSelectedInitialLanguage: parsed.hasSelectedInitialLanguage === true,
+    hasCompletedTutorial:
+      typeof parsed.hasCompletedTutorial === 'boolean'
+        ? parsed.hasCompletedTutorial
+        : hasExistingActivity,
     customTexts: sanitizeCustomTexts(parsed.customTexts),
     xpFormulas: formulas,
-    routines: sanitizeRoutinesList(parsed.routines, formulas),
-    trashedRoutines: sanitizeRoutinesList(parsed.trashedRoutines, formulas),
-    daysByIso: sanitizeDaysByIso(parsed.daysByIso),
+    routines: sanitizedRoutines,
+    trashedRoutines: sanitizedTrashedRoutines,
+    daysByIso: sanitizedDaysByIso,
     dismissedRepeatWeeks: sanitizeDismissedWeeks(parsed.dismissedRepeatWeeks, todayIso),
     unlockedTrophies: sanitizeUnlockedTrophies(parsed.unlockedTrophies, todayIso),
     scheduleChangesByDateIso: sanitizeScheduleChanges(parsed.scheduleChangesByDateIso, todayIso),
-    ...(isIsoDateString(parsed.bugUnlockedAtIso)
-      ? { bugUnlockedAtIso: parsed.bugUnlockedAtIso }
-      : {}),
+    ...(resolvedBugUnlockedAtIso ? { bugUnlockedAtIso: resolvedBugUnlockedAtIso } : {}),
+    ...(resolvedBugPetUnlockedAtIso ? { bugPetUnlockedAtIso: resolvedBugPetUnlockedAtIso } : {}),
     ...(isIsoDateString(parsed.bugHockeyUnlockedAtIso)
       ? { bugHockeyUnlockedAtIso: parsed.bugHockeyUnlockedAtIso }
       : {}),
@@ -728,68 +754,16 @@ export function parseAppStateBackup(
     if (!hasRecognizableShape) return null;
 
     const hydrated = hydrateSanitizedAppState(
-      { ...candidateState, hasSelectedInitialLanguage: true },
+      {
+        ...candidateState,
+        hasSelectedInitialLanguage: true,
+        hasCompletedTutorial: candidateState.hasCompletedTutorial ?? true,
+      },
       todayIso
     );
     return hydrated;
   } catch {
     return null;
-  }
-}
-
-function migrateLegacyPreferencesWithZeroStats(todayIso: string): AppPersistentState {
-  const fresh = createInitialAppState(todayIso);
-  if (typeof window === 'undefined') return fresh;
-
-  try {
-    const legacyRaw = window.localStorage.getItem(LEGACY_STATE_KEY);
-    window.localStorage.removeItem(LEGACY_STATE_KEY);
-    window.localStorage.removeItem(LEGACY_SESSION_KEY);
-
-    if (!legacyRaw) {
-      window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(fresh));
-      return fresh;
-    }
-
-    const legacy = JSON.parse(legacyRaw) as {
-      themeMode?: unknown;
-      stepGoal?: unknown;
-      xpFormulas?: Partial<XpFormulas>;
-      routineTemplates?: Routine[];
-      trashedRoutines?: Routine[];
-    };
-
-    const formulas = sanitizeFormulas(legacy.xpFormulas);
-    const routines = Array.isArray(legacy.routineTemplates)
-      ? legacy.routineTemplates.map((r) => ({
-          ...r,
-          xpReward: calculateRoutineBaseXp(r.category, r.durationMin, formulas),
-        }))
-      : [];
-    const trashedRoutines = Array.isArray(legacy.trashedRoutines)
-      ? legacy.trashedRoutines.map((r) => ({
-          ...r,
-          xpReward: calculateRoutineBaseXp(r.category, r.durationMin, formulas),
-        }))
-      : [];
-
-    const migratedZeroStats: AppPersistentState = {
-      ...fresh,
-      themeMode: legacy.themeMode === 'light' ? 'light' : 'dark',
-      accentPalette: 'ambar',
-      stepGoal:
-        typeof legacy.stepGoal === 'number' && legacy.stepGoal >= 500
-          ? Math.min(200_000, legacy.stepGoal)
-          : 10_000,
-      xpFormulas: formulas,
-      routines,
-      trashedRoutines,
-    };
-
-    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(migratedZeroStats));
-    return migratedZeroStats;
-  } catch {
-    return fresh;
   }
 }
 
@@ -807,45 +781,25 @@ export function loadAppStateFromStorage(): AppPersistentState {
   }
 
   try {
-    let raw = window.localStorage.getItem(APP_STATE_STORAGE_KEY);
-    let migratedFromPreviousBrand = false;
-
-    if (!raw) {
-      const prevRaw =
-        window.localStorage.getItem(PREVIOUS_BROTE_STATE_KEY) ||
-        window.localStorage.getItem(PREVIOUS_KINETIX_STATE_KEY);
-      if (prevRaw) {
-        raw = prevRaw;
-        migratedFromPreviousBrand = true;
-      }
+    for (const oldKey of OBSOLETE_STORAGE_KEYS) {
+      window.localStorage.removeItem(oldKey);
     }
 
-    window.localStorage.removeItem(PREVIOUS_BROTE_STATE_KEY);
-    window.localStorage.removeItem(PREVIOUS_KINETIX_STATE_KEY);
-
+    const raw = window.localStorage.getItem(APP_STATE_STORAGE_KEY);
     if (!raw) {
-      const resetState = migrateLegacyPreferencesWithZeroStats(todayIso);
+      const freshState = createInitialAppState(todayIso);
+      window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(freshState));
       applyThemeToDocument(
-        resetState.themeMode,
-        resetState.accentPalette,
-        resetState.language,
-        resetState.customAccentHex
+        freshState.themeMode,
+        freshState.accentPalette,
+        freshState.language,
+        freshState.customAccentHex
       );
-      return resetState;
+      return freshState;
     }
-
-    window.localStorage.removeItem(LEGACY_STATE_KEY);
-    window.localStorage.removeItem(LEGACY_SESSION_KEY);
 
     const parsed = JSON.parse(raw) as Partial<AppPersistentState>;
-    if (migratedFromPreviousBrand && parsed.accentPalette === 'lima') {
-      parsed.accentPalette = 'ambar';
-    }
-
     const reconciled = hydrateSanitizedAppState(parsed, todayIso);
-    if (migratedFromPreviousBrand) {
-      window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(reconciled));
-    }
 
     applyThemeToDocument(
       reconciled.themeMode,
@@ -893,19 +847,7 @@ export function loadWorkoutSessionFromStorage(routines: Routine[]): HydratedWork
   if (typeof window === 'undefined') return fallback;
 
   try {
-    let raw = window.localStorage.getItem(WORKOUT_SESSION_STORAGE_KEY);
-    if (!raw) {
-      const prevSessionRaw =
-        window.localStorage.getItem(PREVIOUS_BROTE_SESSION_KEY) ||
-        window.localStorage.getItem(PREVIOUS_KINETIX_SESSION_KEY);
-      if (prevSessionRaw) {
-        raw = prevSessionRaw;
-        window.localStorage.setItem(WORKOUT_SESSION_STORAGE_KEY, prevSessionRaw);
-      }
-    }
-    window.localStorage.removeItem(PREVIOUS_BROTE_SESSION_KEY);
-    window.localStorage.removeItem(PREVIOUS_KINETIX_SESSION_KEY);
-
+    const raw = window.localStorage.getItem(WORKOUT_SESSION_STORAGE_KEY);
     if (!raw) return fallback;
 
     const parsed = JSON.parse(raw) as Partial<ActiveWorkoutSessionState>;

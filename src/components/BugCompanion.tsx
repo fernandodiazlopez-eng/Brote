@@ -2,9 +2,9 @@
  * Bug — Mascota 8-bits de Upgrade:
  * - Bola de píxeles en el color secundario/acento de la app, apoyada en reposo sin flotar ni emitir chispas continuas.
  * - Mirada curiosa según ubicación (hacia abajo en Rutinas y Estadísticas; hacia el avatar o al frente en Perfil) y parpadeo ocasional.
- * - Nivel 10: Acariciar con Doble Tap (ojos en arcos felices, parpadeo y destello de chispas del color secundario; sin texto).
+ * - Nivel 3: Desbloqueo de Bug en la interfaz y carrusel de metro.
+ * - Nivel 5: Acariciar con Doble Tap (ojos en arcos felices, parpadeo y destello de chispas del color secundario; sin texto).
  * - Nivel 50: Física Air Hockey al mantener pulsado (Long Press + arrastrar/lanzar, rebote limpio con chispas y sonido 8-bits, frenado progresivo y reaparición inmediata en su sitio).
- * - Panel luminoso de metro (marquee LED sin bocadillos) y tarjetas de desbloqueo en Nivel 10 y Nivel 50.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -227,7 +227,7 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
     };
   }, []);
 
-  // Destello de chispas 8-bits al acariciar (Doble Tap en Nivel 10+)
+  // Destello de chispas 8-bits al acariciar (Doble Tap en Nivel 5+)
   const triggerPetSparksAndExpression = useCallback(() => {
     petTimersRef.current.forEach((id) => window.clearTimeout(id));
     petTimersRef.current = [];
@@ -666,7 +666,9 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
             triggerPetSparksAndExpression();
           }
         }}
-        className={`inline-flex items-end justify-center select-none cursor-pointer ${
+        className={`inline-flex items-end justify-center select-none ${
+          canPet || canLaunchHockey ? 'cursor-pointer' : 'cursor-default'
+        } ${
           canLaunchHockey ? 'touch-none' : 'touch-manipulation'
         } leading-none ${isDetached ? 'opacity-0 pointer-events-none' : ''} ${className}`}
       >
@@ -808,8 +810,8 @@ interface BugUnlockBannerProps {
 }
 
 /**
- * Cuadro emergente estilo logro Nothing OS × Cyberpunk al descubrir a Bug (Nivel 10)
- * o al desbloquear su lanzamiento Air Hockey (Nivel 50).
+ * Cuadro emergente estilo logro Nothing OS × Cyberpunk al descubrir a Bug (Nivel 3),
+ * desbloquear acariciarlo (Nivel 5) o desbloquear su lanzamiento Air Hockey (Nivel 50).
  */
 export const BugUnlockBanner: React.FC<BugUnlockBannerProps> = ({
   milestone,
@@ -818,6 +820,7 @@ export const BugUnlockBanner: React.FC<BugUnlockBannerProps> = ({
   const { language } = useI18n();
   const copy = getBugMilestoneCopy(milestone, language);
   const isLevel50 = milestone === 'level50';
+  const litSlotsCount = milestone === 'level50' ? 5 : milestone === 'level5' ? 3 : 2;
 
   return (
     <div
@@ -858,7 +861,7 @@ export const BugUnlockBanner: React.FC<BugUnlockBannerProps> = ({
               <span
                 key={slot}
                 className={`w-[3px] h-[7px] rounded-[0.5px] ${
-                  isLevel50 || slot <= 3 ? 'bg-accent-fill' : 'bg-elevated'
+                  slot <= litSlotsCount ? 'bg-accent-fill' : 'bg-elevated'
                 }`}
               />
             ))}

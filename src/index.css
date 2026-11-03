@@ -68,11 +68,11 @@
   --app-fg: #f4f4f6;
   --app-fg-secondary: #b6b9c4;
   --app-fg-muted: #767b8a;
-  --app-accent: #f5b427;
-  --app-accent-fill: #f5b427;
-  --app-accent-fg: #08080a;
-  --app-accent-soft: rgba(245, 180, 39, 0.13);
-  --app-accent-glow: rgba(245, 180, 39, 0.38);
+  --app-accent: #c8ff00;
+  --app-accent-fill: #c8ff00;
+  --app-accent-fg: #090d00;
+  --app-accent-soft: rgba(200, 255, 0, 0.12);
+  --app-accent-glow: rgba(200, 255, 0, 0.36);
   --ndot-grid: rgba(255, 255, 255, 0.055);
   --ndot-module: rgba(255, 255, 255, 0.045);
   --reticle-tick: rgba(255, 255, 255, 0.2);
@@ -85,9 +85,9 @@
   --muscle-fresh-stroke: #3e4459;
   --muscle-fresh-selected-stroke: #ffffff;
   --muscle-fresh-selected-glow: rgba(255, 255, 255, 0.36);
-  --muscle-loaded-stroke: #f59e0b;
-  --muscle-recovering-stroke: #f7d98c;
-  --muscle-recovering-text: #f7d98c;
+  --muscle-loaded-stroke: #baf500;
+  --muscle-recovering-stroke: #e5ff99;
+  --muscle-recovering-text: #e5ff99;
   --trophy-pedestal-bg: #07080c;
   --trophy-pedestal-led-off: #1f2330;
   --trophy-locked-stroke: #4b5162;
@@ -105,11 +105,11 @@
   --app-fg: #0c0d10;
   --app-fg-secondary: #3f434e;
   --app-fg-muted: #6c7180;
-  --app-accent: #a66a00;
-  --app-accent-fill: #f5b427;
-  --app-accent-fg: #08080a;
-  --app-accent-soft: rgba(245, 180, 39, 0.16);
-  --app-accent-glow: rgba(245, 180, 39, 0.24);
+  --app-accent: #4f7500;
+  --app-accent-fill: #a8e000;
+  --app-accent-fg: #090d00;
+  --app-accent-soft: rgba(140, 186, 0, 0.15);
+  --app-accent-glow: rgba(140, 186, 0, 0.24);
   --ndot-grid: rgba(12, 13, 16, 0.075);
   --ndot-module: rgba(12, 13, 16, 0.055);
   --reticle-tick: rgba(12, 13, 16, 0.24);
@@ -122,9 +122,9 @@
   --muscle-fresh-stroke: #768096;
   --muscle-fresh-selected-stroke: #0c0d10;
   --muscle-fresh-selected-glow: rgba(12, 13, 16, 0.14);
-  --muscle-loaded-stroke: #ea9a00;
-  --muscle-recovering-stroke: #f5c663;
-  --muscle-recovering-text: #b87400;
+  --muscle-loaded-stroke: #7cb800;
+  --muscle-recovering-stroke: #b9e354;
+  --muscle-recovering-text: #527a00;
   --trophy-pedestal-bg: #1e2330;
   --trophy-pedestal-led-off: #3a4154;
   --trophy-locked-stroke: #7c8599;
@@ -357,15 +357,21 @@
   background-color: #00c864;
 }
 .palette-dot-custom {
-  background-color: var(--custom-swatch-color, #f5b427);
+  background-color: var(--custom-swatch-color, #c8ff00);
   box-shadow: inset 0 0 0 1px rgba(128, 128, 128, 0.38);
 }
 .palette-dot-custom-draft {
-  background-color: var(--custom-draft-swatch-color, var(--custom-swatch-color, #f5b427));
+  background-color: var(--custom-draft-swatch-color, var(--custom-swatch-color, #c8ff00));
   box-shadow: inset 0 0 0 1px rgba(128, 128, 128, 0.38);
 }
 
 @layer base {
+  *,
+  *::before,
+  *::after {
+    -webkit-tap-highlight-color: transparent;
+  }
+
   html {
     font-family: var(--font-sans);
     background-color: var(--app-canvas);
@@ -489,17 +495,13 @@
   letter-spacing: 0.03em;
   text-transform: uppercase;
   cursor: pointer;
-  transition: filter 130ms cubic-bezier(0.16, 1, 0.3, 1),
-    transform 90ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.btn-primary:hover {
-  filter: brightness(1.06);
+  transition: transform 90ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .btn-primary:active {
   transform: translateY(1px);
-  filter: brightness(0.95);
+  background-color: var(--app-accent-fill);
+  color: var(--app-accent-fg);
 }
 
 .btn-secondary {
@@ -512,17 +514,13 @@
   font-weight: 600;
   letter-spacing: 0.02em;
   cursor: pointer;
-  transition: background-color 130ms cubic-bezier(0.16, 1, 0.3, 1),
-    border-color 130ms cubic-bezier(0.16, 1, 0.3, 1),
+  transition: border-color 130ms cubic-bezier(0.16, 1, 0.3, 1),
     transform 90ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.btn-secondary:hover {
-  background-color: var(--key-secondary-hover);
 }
 
 .btn-secondary:active {
   transform: translateY(1px);
+  background-color: var(--key-secondary-bg);
 }
 
 .btn-quiet {
@@ -531,18 +529,13 @@
   border-radius: 4px;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 130ms cubic-bezier(0.16, 1, 0.3, 1),
-    color 130ms cubic-bezier(0.16, 1, 0.3, 1),
-    transform 90ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.btn-quiet:hover {
-  background-color: var(--app-elevated);
-  color: var(--app-fg);
+  transition: transform 90ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .btn-quiet:active {
   transform: translateY(1px);
+  background-color: transparent;
+  color: var(--app-fg-muted);
 }
 
 .seg-group {
@@ -558,19 +551,32 @@
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--app-fg-muted);
+  background-color: transparent;
   cursor: pointer;
-  transition: background-color 130ms cubic-bezier(0.16, 1, 0.3, 1),
-    color 130ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.seg-btn:hover {
-  color: var(--app-fg);
-}
-
-.seg-btn-active {
+.seg-btn.seg-btn-active,
+.seg-btn.seg-btn-active:hover,
+.seg-btn.seg-btn-active:active,
+.seg-btn.seg-btn-active:focus {
   background-color: var(--app-accent-fill);
   color: var(--app-accent-fg);
   font-weight: 700;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .btn-secondary:hover:not(:active) {
+    background-color: var(--key-secondary-hover);
+  }
+
+  .btn-quiet:hover:not(:active) {
+    background-color: var(--app-elevated);
+    color: var(--app-fg-secondary);
+  }
+
+  .seg-btn:not(.seg-btn-active):hover:not(:active) {
+    color: var(--app-fg-secondary);
+  }
 }
 
 .btn-primary:focus-visible,
@@ -1316,6 +1322,43 @@
 
 .animate-bug-respawn {
   animation: bugRespawnPop 210ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes tutorialCardIn {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-tutorial-card {
+  animation: tutorialCardIn 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes tutorialDragChip {
+  0%,
+  18% {
+    transform: translateX(0);
+    opacity: 0.95;
+  }
+  58%,
+  78% {
+    transform: translateX(74px);
+    opacity: 1;
+  }
+  92%,
+  100% {
+    transform: translateX(0);
+    opacity: 0.95;
+  }
+}
+
+.animate-tutorial-drag {
+  animation: tutorialDragChip 2.8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

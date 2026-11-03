@@ -542,6 +542,7 @@ export const StatsView: React.FC<StatsViewProps> = React.memo(({
         <h1 className="text-2xl font-bold uppercase tracking-wide text-fg">{t.stats_title}</h1>
       </div>
 
+      <div data-tutorial="stats-overview" className="space-y-5">
       {/* Franja de indicadores principales (Bug apoyado en la esquina superior derecha sobre los bloques de datos) */}
       <div className={`relative ${showBug ? 'mt-7' : ''}`}>
         {showBug && (
@@ -1071,6 +1072,7 @@ export const StatsView: React.FC<StatsViewProps> = React.memo(({
           </svg>
         )}
       </section>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {/* Matriz LED interactiva de 28 días */}
@@ -1140,7 +1142,7 @@ export const StatsView: React.FC<StatsViewProps> = React.memo(({
                       ? 'bg-accent-fill text-accent-fg font-bold'
                       : slot.isToday
                       ? 'bg-canvas border border-accent-fill text-fg font-semibold'
-                      : 'bg-elevated text-fg-secondary hover:text-fg'
+                      : 'bg-elevated text-fg-secondary'
                   } ${isSelectedSlot ? 'ring-2 ring-fg ring-offset-1 ring-offset-surface' : ''}`}
                 >
                   {slot.dayOfMonth}

@@ -294,7 +294,10 @@ export const DailyStepsDial: React.FC<DailyStepsDialProps> = React.memo(({
   };
 
   return (
-    <section className="lg:col-span-5 sheet-panel ndot-surface p-4 sm:p-5">
+    <section
+      data-tutorial="profile-steps"
+      className="lg:col-span-5 sheet-panel ndot-surface p-4 sm:p-5"
+    >
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-bold uppercase tracking-wide text-fg">{t.steps_title}</h2>
 
