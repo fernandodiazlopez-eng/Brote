@@ -82,7 +82,6 @@ interface ProfileViewProps {
   onChangeTimerNotifications?: (enabled: boolean) => void;
   motionStepsEnabled?: boolean;
   onChangeMotionSteps?: (enabled: boolean) => void;
-  onImportHealthFile?: (fileName: string, rawContent: string) => boolean;
 }
 
 interface RoutineTransferDragState {
@@ -148,7 +147,6 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
   onChangeTimerNotifications,
   motionStepsEnabled = false,
   onChangeMotionSteps,
-  onImportHealthFile,
 }) => {
   const { language, locale, t, formatCategory } = useI18n();
   const formatKmValue = (km: number) => {
@@ -1128,7 +1126,6 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
           onUpdateDaySteps={onUpdateDaySteps}
           onUpdateStepGoal={onUpdateStepGoal}
           isMotionSensorReceiving={isMotionSensorReceiving}
-          onImportHealthFile={onImportHealthFile}
         />
       </div>
 
@@ -1160,7 +1157,6 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
         onChangeTimerNotifications={onChangeTimerNotifications}
         motionStepsEnabled={motionStepsEnabled}
         onChangeMotionSteps={onChangeMotionSteps}
-        onImportHealthFile={onImportHealthFile}
       />
 
       {/* Modal para asignar o quitar rutinas del día seleccionado */}

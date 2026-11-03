@@ -254,7 +254,6 @@ interface ProfileSettingsModalProps {
   onChangeTimerNotifications?: (enabled: boolean) => void;
   motionStepsEnabled?: boolean;
   onChangeMotionSteps?: (enabled: boolean) => void;
-  onImportHealthFile?: (fileName: string, rawContent: string) => boolean;
 }
 
 export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
@@ -278,7 +277,6 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   onChangeTimerNotifications,
   motionStepsEnabled = false,
   onChangeMotionSteps,
-  onImportHealthFile,
 }) => {
   const {
     language,
@@ -298,9 +296,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const [settingsSection, setSettingsSection] = useState<'main' | 'advanced' | 'texts'>('main');
   const [textSearchQuery, setTextSearchQuery] = useState('');
   const [backupFeedback, setBackupFeedback] = useState<'success' | 'error' | null>(null);
-  const [healthSyncFeedback, setHealthSyncFeedback] = useState<'ok' | 'err' | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const healthFileInputRef = useRef<HTMLInputElement | null>(null);
   const colorPickerInputRef = useRef<HTMLInputElement | null>(null);
 
   const [draftCustomHex, setDraftCustomHex] = useState<string>(() =>
@@ -332,7 +328,6 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
       setTextSearchQuery('');
       setShowIOSInstallGuide(false);
       setBackupFeedback(null);
-      setHealthSyncFeedback(null);
       setShowCustomHexError(false);
       setDraftCustomHex((customAccentHex || '#c8ff00').toUpperCase());
     }
@@ -820,8 +815,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               </div>
             )}
 
-            {/* Permisos opcionales del móvil y sincronización con Salud / Fit */}
-            {(onChangeTimerNotifications || onChangeMotionSteps || onImportHealthFile) && (
+            {/* Permisos opcionales del móvil (alarma y actividad física / podómetro) */}
+            {(onChangeTimerNotifications || onChangeMotionSteps) && (
               <div className="pt-3 border-t border-subtle space-y-3">
                 <p className="font-display text-xs font-semibold uppercase tracking-wider text-fg-secondary">
                   {t.settings_mobile_heading}
@@ -902,58 +897,6 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                         {t.settings_toggle_off}
                       </button>
                     </div>
-                  </div>
-                )}
-
-                {onImportHealthFile && (
-                  <div className="space-y-1.5 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setHealthSyncFeedback(null);
-                        healthFileInputRef.current?.click();
-                      }}
-                      className="btn-secondary w-full min-h-[42px] px-3.5 py-2 text-xs flex items-center justify-center gap-2 whitespace-nowrap"
-                    >
-                      <Upload className="w-3.5 h-3.5 text-accent shrink-0" />
-                      <span>{t.settings_health_sync_btn}</span>
-                    </button>
-                    <input
-                      ref={healthFileInputRef}
-                      type="file"
-                      accept=".xml,.csv,.json,.gpx,.tcx,text/xml,text/csv,application/json"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        e.target.value = '';
-                        if (!file) return;
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                          const raw = typeof reader.result === 'string' ? reader.result : '';
-                          const ok = onImportHealthFile(file.name, raw);
-                          setHealthSyncFeedback(ok ? 'ok' : 'err');
-                        };
-                        reader.onerror = () => {
-                          setHealthSyncFeedback('err');
-                        };
-                        reader.readAsText(file);
-                      }}
-                      className="hidden"
-                    />
-                    <p className="text-[11px] text-fg-muted leading-snug">
-                      {t.settings_health_sync_hint}
-                    </p>
-                    {healthSyncFeedback && (
-                      <p
-                        role="status"
-                        className={`text-xs font-medium ${
-                          healthSyncFeedback === 'ok' ? 'text-accent' : 'text-red-400'
-                        }`}
-                      >
-                        {healthSyncFeedback === 'ok'
-                          ? t.settings_health_sync_ok
-                          : t.settings_health_sync_err}
-                      </p>
-                    )}
                   </div>
                 )}
               </div>

@@ -370,6 +370,9 @@
   *::before,
   *::after {
     -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
   }
 
   html {
@@ -378,6 +381,9 @@
     color: var(--app-fg);
     -webkit-tap-highlight-color: transparent;
     -webkit-text-size-adjust: 100%;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
     overscroll-behavior-y: none;
   }
 
@@ -387,7 +393,18 @@
     background-size: 16px 16px;
     color: var(--app-fg);
     overflow-x: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
     overscroll-behavior-y: none;
+  }
+
+  input,
+  textarea,
+  [contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
   }
 
   button,
@@ -1322,6 +1339,102 @@
 
 .animate-bug-respawn {
   animation: bugRespawnPop 210ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes bugTrophyJump {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1, 1);
+  }
+  10% {
+    transform: translate3d(0, 1.5px, 0) scale(1.08, 0.9);
+  }
+  26% {
+    transform: translate3d(0, -14px, 0) scale(0.95, 1.06);
+  }
+  42% {
+    transform: translate3d(0, 0, 0) scale(1.06, 0.92);
+  }
+  58% {
+    transform: translate3d(0, -11px, 0) scale(0.96, 1.05);
+  }
+  74% {
+    transform: translate3d(0, 0, 0) scale(1.05, 0.94);
+  }
+  88% {
+    transform: translate3d(0, -8px, 0) scale(0.98, 1.03);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1, 1);
+  }
+}
+
+.animate-bug-trophy-jump {
+  transform-origin: center bottom;
+  animation: bugTrophyJump 1.25s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes bugTopHop {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1, 1);
+  }
+  18% {
+    transform: translate3d(0, 1px, 0) scale(1.06, 0.92);
+  }
+  52% {
+    transform: translate3d(0, -9px, 0) scale(0.96, 1.05);
+  }
+  84% {
+    transform: translate3d(0, 0.5px, 0) scale(1.04, 0.96);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1, 1);
+  }
+}
+
+.animate-bug-top-hop {
+  transform-origin: center bottom;
+  animation: bugTopHop 340ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes bugScaredAlarmLoop {
+  0% {
+    transform: translate3d(0, -11px, 0) scale(0.94, 1.08);
+  }
+  14% {
+    transform: translate3d(-1.5px, 0, 0) scale(1.05, 0.94);
+  }
+  24% {
+    transform: translate3d(1.5px, 0, 0);
+  }
+  34% {
+    transform: translate3d(-1.5px, -2px, 0);
+  }
+  44% {
+    transform: translate3d(1.5px, 0, 0);
+  }
+  54% {
+    transform: translate3d(-1px, 0, 0);
+  }
+  64% {
+    transform: translate3d(1px, 0, 0);
+  }
+  74% {
+    transform: translate3d(-1.5px, 0, 0);
+  }
+  84% {
+    transform: translate3d(1.5px, 0, 0);
+  }
+  94% {
+    transform: translate3d(-1px, 0, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.animate-bug-scared {
+  transform-origin: center bottom;
+  animation: bugScaredAlarmLoop 1.5s cubic-bezier(0.22, 1, 0.36, 1) infinite;
 }
 
 @keyframes tutorialCardIn {

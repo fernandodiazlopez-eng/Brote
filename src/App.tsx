@@ -23,6 +23,8 @@ import {
 import { registerSW } from 'virtual:pwa-register';
 import {
   BugGlobalMood,
+  BugReactionContext,
+  BugReactionContextValue,
   BugSubwayMarquee,
   BugUnlockBanner,
 } from './components/BugCompanion';
@@ -71,7 +73,6 @@ import {
 } from './utils/audioEffects';
 import { addDaysToIso, getDailyRecord, getTodayDateIso } from './utils/calendarDates';
 import { createBackgroundClockTicker } from './utils/countdownWorker';
-import { parseMobileHealthExport } from './utils/mobileHealthSync';
 import {
   APP_STATE_STORAGE_KEY,
   applyThemeToDocument,
@@ -146,6 +147,8 @@ export default function App() {
   // Estado reactivo de Bug (mascota 8-bits) y su carrusel luminoso de metro
   const [bugMood, setBugMood] = useState<BugGlobalMood>('none');
   const [bugMarquee, setBugMarquee] = useState<{ id: number; text: string } | null>(null);
+  const [trophyCelebrateToken, setTrophyCelebrateToken] = useState<number>(0);
+  const [scrollTopHopToken, setScrollTopHopToken] = useState<number>(0);
   const bugMoodTimersRef = useRef<number[]>([]);
   const lastBugPhraseRef = useRef<string | null>(null);
   const nextBugMsgIdRef = useRef<number>(0);
@@ -352,6 +355,7 @@ export default function App() {
   useEffect(() => {
     if (!currentTrophyBanner) return;
     playTrophyUnlockSound(currentTrophyBanner.tier);
+    setTrophyCelebrateToken((n) => n + 1);
 
     const timerId = window.setTimeout(() => {
       setTrophyQueue((prev) => prev.slice(1));
@@ -498,6 +502,95 @@ export default function App() {
     registerSW({ immediate: true });
   }, []);
 
+  // Bloqueo global contra selección/copiado accidental de textos al mantener pulsado en móvil (excepto en inputs)
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const isEditableTarget = (target: EventTarget | null): boolean => {
+      if (!(target instanceof HTMLElement)) return false;
+      return Boolean(target.closest('input, textarea, [contenteditable="true"]'));
+    };
+
+    const preventNonInputSelect = (e: Event) => {
+      if (!isEditableTarget(e.target)) {
+        e.preventDefault();
+      }
+    };
+
+    document.addEventListener('selectstart', preventNonInputSelect);
+    document.addEventListener('contextmenu', preventNonInputSelect);
+    return () => {
+      document.removeEventListener('selectstart', preventNonInputSelect);
+      document.removeEventListener('contextmenu', preventNonInputSelect);
+    };
+  }, []);
+
+  // Saltito de Bug al subir la aplicación hasta el tope o tirar suavemente arriba del todo
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let hadScrolledDown = window.scrollY > 24;
+    let lastHopAtMs = 0;
+    let pullStartY: number | null = null;
+    let pullTriggered = false;
+
+    const triggerTopHop = () => {
+      const now = Date.now();
+      if (now - lastHopAtMs < 650) return;
+      lastHopAtMs = now;
+      setScrollTopHopToken((n) => n + 1);
+    };
+
+    const handleScroll = () => {
+      const y = window.scrollY;
+      if (y > 24) {
+        hadScrolledDown = true;
+      } else if (y <= 2 && hadScrolledDown) {
+        hadScrolledDown = false;
+        triggerTopHop();
+      }
+    };
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (window.scrollY <= 2 && e.touches.length === 1) {
+        pullStartY = e.touches[0].clientY;
+        pullTriggered = false;
+      } else {
+        pullStartY = null;
+        pullTriggered = false;
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (pullStartY === null || pullTriggered || e.touches.length !== 1) return;
+      if (window.scrollY > 4) {
+        pullStartY = null;
+        return;
+      }
+      const dy = e.touches[0].clientY - pullStartY;
+      if (dy >= 34) {
+        pullTriggered = true;
+        triggerTopHop();
+      }
+    };
+
+    const clearPull = () => {
+      pullStartY = null;
+      pullTriggered = false;
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchmove', handleTouchMove, { passive: true });
+    window.addEventListener('touchend', clearPull, { passive: true });
+    window.addEventListener('touchcancel', clearPull, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', clearPull);
+      window.removeEventListener('touchcancel', clearPull);
+    };
+  }, []);
+
   useEffect(() => {
     applyThemeToDocument(
       appState.themeMode,
@@ -525,11 +618,13 @@ export default function App() {
     title: uiTexts.alarm_finished_title,
     tapToStop: uiTexts.alarm_notif_tap_to_stop,
     restDone: uiTexts.alarm_notif_rest_done,
+    stopBtn: uiTexts.alarm_stop_btn,
   });
   alarmCopyRef.current = {
     title: uiTexts.alarm_finished_title,
     tapToStop: uiTexts.alarm_notif_tap_to_stop,
     restDone: uiTexts.alarm_notif_rest_done,
+    stopBtn: uiTexts.alarm_stop_btn,
   };
 
   const activeSessionRoutine = useMemo(
@@ -1804,10 +1899,42 @@ export default function App() {
     });
   }, []);
 
+  const handleSyncHardwareTotalSteps = useCallback((hardwareTodaySteps: number) => {
+    const safeHwSteps = Math.max(0, Math.min(200_000, Math.round(hardwareTodaySteps)));
+    if (safeHwSteps <= 0) return;
+    const realToday = getTodayDateIso();
+    setAppState((prev) => {
+      const existing = getDailyRecord(prev.daysByIso, realToday);
+      const nextSteps = Math.max(existing.steps, safeHwSteps);
+      if (nextSteps === existing.steps) return prev;
+      return {
+        ...prev,
+        daysByIso: {
+          ...prev.daysByIso,
+          [realToday]: {
+            ...existing,
+            steps: nextSteps,
+          },
+        },
+      };
+    });
+  }, []);
+
   const mobileStepSensor = useMobileStepSensor({
     enabled: Boolean(appState.motionStepsEnabled),
+    currentSavedSteps: todayRecord.steps,
     onStepsDetected: handleSensorStepsDetected,
+    onSyncHardwareTotalSteps: handleSyncHardwareTotalSteps,
   });
+
+  const bugReactionContextValue = useMemo<BugReactionContextValue>(
+    () => ({
+      isAlarmRinging,
+      trophyCelebrateToken,
+      scrollTopHopToken,
+    }),
+    [isAlarmRinging, trophyCelebrateToken, scrollTopHopToken]
+  );
 
   const handleCompleteDevicePermissions = useCallback(
     (result: { timerNotificationsEnabled: boolean; motionStepsEnabled: boolean }) => {
@@ -1844,85 +1971,6 @@ export default function App() {
       motionStepsEnabled: enabled,
     }));
   }, []);
-
-  const handleImportHealthFile = useCallback(
-    (fileName: string, rawContent: string): boolean => {
-      const snap = latestAppStateRef.current;
-      const parsed = parseMobileHealthExport(fileName, rawContent, snap.xpFormulas);
-      if (!parsed) return false;
-
-      const realToday = getTodayDateIso();
-      setAppState((prev) => {
-        const nextDaysByIso: Record<string, DailyActivityRecord> = { ...prev.daysByIso };
-        let earliestIso = prev.firstOpenDateIso;
-
-        for (const [iso, patch] of Object.entries(parsed.daysPatch)) {
-          if (iso < earliestIso) earliestIso = iso;
-          const existing = getDailyRecord(nextDaysByIso, iso);
-          const mergedSteps =
-            patch.steps !== undefined ? Math.max(existing.steps, patch.steps) : existing.steps;
-
-          const existingSignatures = new Set(
-            existing.completedWorkouts.map(
-              (w) => `${w.title}|${w.category}|${w.durationMin}|${w.timeLabel}`
-            )
-          );
-          const newUniqueWorkouts = patch.workouts.filter(
-            (w) => !existingSignatures.has(`${w.title}|${w.category}|${w.durationMin}|${w.timeLabel}`)
-          );
-          const combinedWorkouts =
-            newUniqueWorkouts.length > 0
-              ? recalculateDailyWorkoutsMarginalXp(
-                  [...newUniqueWorkouts, ...existing.completedWorkouts],
-                  prev.xpFormulas
-                )
-              : existing.completedWorkouts;
-
-          nextDaysByIso[iso] = {
-            ...existing,
-            steps: mergedSteps,
-            completedWorkouts: combinedWorkouts,
-          };
-        }
-
-        // Si se importaron fechas pasadas, recalcular el progreso consolidado desde el inicio hasta hoy
-        const hasPastDaysImported = Object.keys(parsed.daysPatch).some((iso) => iso < realToday);
-        if (!hasPastDaysImported) {
-          return {
-            ...prev,
-            daysByIso: nextDaysByIso,
-          };
-        }
-
-        const baseForReplay: AppPersistentState = {
-          ...prev,
-          firstOpenDateIso: earliestIso,
-          lastProcessedDateIso: earliestIso,
-          settledTotalXp: 0,
-          settledPeakLevel: 0,
-          settledPeakContinuousLevel: 0,
-          settledInactiveDays: 0,
-          daysByIso: nextDaysByIso,
-        };
-        const replayed = reconcileDaysUntilToday(baseForReplay, realToday);
-        return {
-          ...replayed,
-          settledTotalXp: Math.max(prev.settledTotalXp, replayed.settledTotalXp),
-          settledPeakLevel: Math.max(prev.settledPeakLevel, replayed.settledPeakLevel),
-          settledPeakContinuousLevel: Math.max(
-            prev.settledPeakContinuousLevel,
-            replayed.settledPeakContinuousLevel
-          ),
-        };
-      });
-
-      if (showBug) {
-        triggerBugQuickReaction(snap.language);
-      }
-      return true;
-    },
-    [showBug, triggerBugQuickReaction]
-  );
 
   const showFloatingSessionBar =
     (isAnyClockRunning || (activeSessionRoutine !== null && hasSessionProgress)) &&
@@ -1982,7 +2030,8 @@ export default function App() {
 
   return (
     <I18nContext.Provider value={i18nContextValue}>
-      <div className="min-h-screen text-fg flex flex-col safe-bottom-page">
+      <BugReactionContext.Provider value={bugReactionContextValue}>
+        <div className="min-h-screen text-fg flex flex-col safe-bottom-page">
         {/* Pregunta inicial única al abrir la app por primera vez: English or Spanish? */}
         <FirstLaunchLanguageModal
           isOpen={!appState.hasSelectedInitialLanguage}
@@ -2177,7 +2226,6 @@ export default function App() {
               onChangeTimerNotifications={handleChangeTimerNotifications}
               motionStepsEnabled={Boolean(appState.motionStepsEnabled)}
               onChangeMotionSteps={handleChangeMotionSteps}
-              onImportHealthFile={handleImportHealthFile}
             />
           )}
 
@@ -2273,7 +2321,8 @@ export default function App() {
             })}
           </div>
         </nav>
-      </div>
+        </div>
+      </BugReactionContext.Provider>
     </I18nContext.Provider>
   );
 }

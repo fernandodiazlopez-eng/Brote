@@ -283,31 +283,25 @@ export const DEFAULT_ES_TEXTS = {
   tutorial_s5_body:
     'Cada vez que completes una rutina o sumes pasos, se actualizarán automáticamente tu Perfil, tus gráficas de Estadísticas y tus trofeos.',
 
-  // 11. Permisos Opcionales del Móvil y Sincronización de Actividad
+  // 11. Permisos Opcionales del Móvil (Alarma y Actividad Física / Podómetro)
   perm_modal_title: 'Permisos del móvil',
   perm_optional_tag: 'Opcional · Solo se pregunta una vez',
   perm_modal_intro:
     'Estos permisos son totalmente opcionales. Solo te los preguntaremos esta única vez para que elijas qué quieres usar; si prefieres omitirlos, todo seguirá funcionando con normalidad.',
-  perm_timer_title: 'Temporizador fuera de la app o con pantalla apagada',
+  perm_timer_title: 'Alarma fuera de la app o con pantalla apagada',
   perm_timer_desc:
-    'Permite que el móvil emita aviso sonoro y vibración cuando termina la cuenta atrás aunque bloquees la pantalla o estés en otra aplicación.',
-  perm_motion_title: 'Pasos y actividad del propio móvil',
+    'Permite emitir avisos repetidos y vibración junto al sonido de la alarma cuando termina la cuenta atrás aunque estés en otra app o con el móvil bloqueado.',
+  perm_motion_title: 'Actividad física y podómetro del móvil',
   perm_motion_desc:
-    'Usa el sensor de movimiento del teléfono para sumar tus pasos y distancia mientras entrenas o usas la app. También puedes importar datos desde la app de Salud o Fit de tu móvil.',
+    'Solicita el permiso de actividad física y sensores de movimiento de tu dispositivo para contar tus pasos automáticamente al caminar con el móvil, sin importar datos manualmente.',
   perm_enable_btn: 'Activar seleccionados',
   perm_skip_btn: 'Omitir (es opcional)',
-  settings_mobile_heading: 'Datos y permisos del móvil',
-  settings_timer_notif_label: 'Avisos del temporizador',
-  settings_motion_steps_label: 'Sensor de pasos del móvil',
+  settings_mobile_heading: 'Permisos del móvil',
+  settings_timer_notif_label: 'Avisos de alarma en segundo plano',
+  settings_motion_steps_label: 'Actividad física y podómetro',
   settings_toggle_on: 'Activado',
   settings_toggle_off: 'Desactivado',
-  settings_health_sync_btn: 'Importar de Salud / Fit',
-  settings_health_sync_hint:
-    'Sincroniza pasos, distancia y entrenamientos exportados desde Apple Salud (.xml), Google Fit / Samsung Health (.csv, .json) o rutas (.gpx, .tcx).',
-  settings_health_sync_ok: 'Datos del móvil sincronizados',
-  settings_health_sync_err: 'No se encontraron pasos o sesiones compatibles en el archivo',
-  steps_sensor_live: 'Sensor móvil activo',
-  steps_import_mobile_btn: 'Sincronizar móvil',
+  steps_sensor_live: 'Podómetro activo',
 } as const;
 
 export type UiTextKey = keyof typeof DEFAULT_ES_TEXTS;
@@ -588,31 +582,25 @@ export const DEFAULT_EN_TEXTS: UiTextsMap = {
   tutorial_s5_body:
     'Once routines are completed or steps are logged, your Profile, Statistics charts, and trophies update automatically.',
 
-  // 11. Optional Mobile Permissions & Activity Sync
+  // 11. Optional Mobile Permissions (Alarm & Physical Activity Pedometer)
   perm_modal_title: 'Mobile permissions',
   perm_optional_tag: 'Optional · Asked only once',
   perm_modal_intro:
     'These permissions are completely optional. We will only ask you this single time so you can choose what to enable; if you skip them, everything still works normally.',
-  perm_timer_title: 'Timer with screen off or outside the app',
+  perm_timer_title: 'Alarm with screen off or outside the app',
   perm_timer_desc:
-    'Allows your phone to play an alert sound and vibrate when a countdown finishes even if your screen is locked or you switch to another app.',
-  perm_motion_title: 'Steps & activity from your phone',
+    'Allows repeated alerts and vibration alongside the alarm sound when a countdown finishes even if your screen is locked or you are in another app.',
+  perm_motion_title: 'Physical activity & phone pedometer',
   perm_motion_desc:
-    'Uses your phone motion sensor to count steps and distance while training or using the app. You can also import data from your phone Health or Fit app anytime.',
+    'Requests your device physical activity and motion sensor permission to count your steps automatically as you walk with your phone, without manual data imports.',
   perm_enable_btn: 'Enable selected',
   perm_skip_btn: 'Skip (optional)',
-  settings_mobile_heading: 'Mobile data & permissions',
-  settings_timer_notif_label: 'Timer alerts',
-  settings_motion_steps_label: 'Phone step sensor',
+  settings_mobile_heading: 'Mobile permissions',
+  settings_timer_notif_label: 'Background alarm alerts',
+  settings_motion_steps_label: 'Physical activity & pedometer',
   settings_toggle_on: 'On',
   settings_toggle_off: 'Off',
-  settings_health_sync_btn: 'Import from Health / Fit',
-  settings_health_sync_hint:
-    'Sync steps, distance, and workouts exported from Apple Health (.xml), Google Fit / Samsung Health (.csv, .json), or GPS files (.gpx, .tcx).',
-  settings_health_sync_ok: 'Mobile activity synced',
-  settings_health_sync_err: 'No compatible steps or workouts found in file',
-  steps_sensor_live: 'Phone sensor active',
-  steps_import_mobile_btn: 'Sync phone',
+  steps_sensor_live: 'Pedometer active',
 };
 
 export const DEFAULT_UI_TEXTS: Record<AppLanguage, UiTextsMap> = {
@@ -728,7 +716,6 @@ export const UI_TEXT_SECTIONS: UiTextSectionMeta[] = [
       { key: 'steps_km_unit', labelEs: 'Unidad de distancia (km)', labelEn: 'Distance unit (km)' },
       { key: 'steps_confirm_btn', labelEs: 'Botón confirmar pasos', labelEn: 'Confirm steps button' },
       { key: 'steps_sensor_live', labelEs: 'Indicador sensor móvil activo', labelEn: 'Mobile sensor active label' },
-      { key: 'steps_import_mobile_btn', labelEs: 'Botón sincronizar móvil', labelEn: 'Sync phone button' },
     ],
   },
   {
@@ -949,23 +936,21 @@ export const UI_TEXT_SECTIONS: UiTextSectionMeta[] = [
   },
   {
     id: 'mobile_permissions',
-    titleEs: 'Permisos y salud del móvil',
-    titleEn: 'Mobile permissions & health',
+    titleEs: 'Permisos del móvil',
+    titleEn: 'Mobile permissions',
     fields: [
       { key: 'perm_modal_title', labelEs: 'Título ventana permisos', labelEn: 'Permissions modal title' },
       { key: 'perm_optional_tag', labelEs: 'Subtítulo opcional única vez', labelEn: 'Optional once tag' },
       { key: 'perm_modal_intro', labelEs: 'Explicación general opcional', labelEn: 'Optional intro text', multiline: true },
-      { key: 'perm_timer_title', labelEs: 'Permiso temporizador título', labelEn: 'Timer permission title' },
-      { key: 'perm_timer_desc', labelEs: 'Permiso temporizador detalle', labelEn: 'Timer permission description', multiline: true },
-      { key: 'perm_motion_title', labelEs: 'Permiso pasos móvil título', labelEn: 'Phone steps permission title' },
-      { key: 'perm_motion_desc', labelEs: 'Permiso pasos móvil detalle', labelEn: 'Phone steps permission description', multiline: true },
+      { key: 'perm_timer_title', labelEs: 'Permiso alarma título', labelEn: 'Alarm permission title' },
+      { key: 'perm_timer_desc', labelEs: 'Permiso alarma detalle', labelEn: 'Alarm permission description', multiline: true },
+      { key: 'perm_motion_title', labelEs: 'Permiso actividad física título', labelEn: 'Physical activity permission title' },
+      { key: 'perm_motion_desc', labelEs: 'Permiso actividad física detalle', labelEn: 'Physical activity permission description', multiline: true },
       { key: 'perm_enable_btn', labelEs: 'Botón activar permisos', labelEn: 'Enable permissions button' },
       { key: 'perm_skip_btn', labelEs: 'Botón omitir permisos', labelEn: 'Skip permissions button' },
       { key: 'settings_mobile_heading', labelEs: 'Sección móvil en Ajustes', labelEn: 'Mobile section in Settings' },
-      { key: 'settings_timer_notif_label', labelEs: 'Etiqueta avisos temporizador', labelEn: 'Timer alerts label' },
-      { key: 'settings_motion_steps_label', labelEs: 'Etiqueta sensor de pasos', labelEn: 'Step sensor label' },
-      { key: 'settings_health_sync_btn', labelEs: 'Botón importar Salud / Fit', labelEn: 'Import Health / Fit button' },
-      { key: 'settings_health_sync_hint', labelEs: 'Ayuda importar Salud / Fit', labelEn: 'Import Health / Fit hint', multiline: true },
+      { key: 'settings_timer_notif_label', labelEs: 'Etiqueta avisos alarma', labelEn: 'Alarm alerts label' },
+      { key: 'settings_motion_steps_label', labelEs: 'Etiqueta podómetro móvil', labelEn: 'Pedometer label' },
     ],
   },
 ];

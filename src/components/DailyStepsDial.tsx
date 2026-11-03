@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, Check, Edit3, Smartphone } from 'lucide-react';
+import { Activity, Check, Edit3 } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 import { XpFormulas } from '../types';
 import { calculateStepsXp, KM_PER_STEP } from '../utils/progressionRules';
@@ -21,7 +21,6 @@ interface DailyStepsDialProps {
   onUpdateDaySteps: (dateIso: string, nextSteps: number) => void;
   onUpdateStepGoal: (newGoal: number) => void;
   isMotionSensorReceiving?: boolean;
-  onImportHealthFile?: (fileName: string, rawContent: string) => boolean;
 }
 
 const DIAL_SIZE = 224;
@@ -83,7 +82,6 @@ export const DailyStepsDial: React.FC<DailyStepsDialProps> = React.memo(({
   onUpdateDaySteps,
   onUpdateStepGoal,
   isMotionSensorReceiving = false,
-  onImportHealthFile,
 }) => {
   const { locale, t } = useI18n();
   const safeGoal = Math.max(500, stepGoal);
@@ -101,10 +99,8 @@ export const DailyStepsDial: React.FC<DailyStepsDialProps> = React.memo(({
 
   const [isEditingGoal, setIsEditingGoal] = useState(false);
   const [goalInput, setGoalInput] = useState('');
-  const [syncFeedback, setSyncFeedback] = useState<'ok' | 'err' | null>(null);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
-  const healthFileInputRef = useRef<HTMLInputElement | null>(null);
   const cachedCenterRef = useRef<{ cx: number; cy: number } | null>(null);
 
   useEffect(() => {
@@ -535,64 +531,10 @@ export const DailyStepsDial: React.FC<DailyStepsDialProps> = React.memo(({
           </button>
         )}
 
-        {isSelectedToday && (isMotionSensorReceiving || onImportHealthFile) && (
-          <div className="mt-3 pt-2.5 border-t border-subtle w-full flex flex-col items-center gap-2">
-            {isMotionSensorReceiving && (
-              <div className="flex items-center gap-1.5 font-mono text-[11px] text-accent">
-                <Activity className="w-3.5 h-3.5 shrink-0" />
-                <span>{t.steps_sensor_live}</span>
-              </div>
-            )}
-
-            {onImportHealthFile && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSyncFeedback(null);
-                    healthFileInputRef.current?.click();
-                  }}
-                  className="btn-quiet min-h-[34px] px-2.5 text-xs font-display font-semibold uppercase tracking-wider flex items-center justify-center gap-1.5"
-                >
-                  <Smartphone className="w-3.5 h-3.5 text-accent shrink-0" />
-                  <span>{t.steps_import_mobile_btn}</span>
-                </button>
-                <input
-                  ref={healthFileInputRef}
-                  type="file"
-                  accept=".xml,.csv,.json,.gpx,.tcx,text/xml,text/csv,application/json"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    e.target.value = '';
-                    if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                      const raw = typeof reader.result === 'string' ? reader.result : '';
-                      const ok = onImportHealthFile(file.name, raw);
-                      setSyncFeedback(ok ? 'ok' : 'err');
-                      window.setTimeout(() => setSyncFeedback(null), 4000);
-                    };
-                    reader.onerror = () => {
-                      setSyncFeedback('err');
-                    };
-                    reader.readAsText(file);
-                  }}
-                  className="hidden"
-                />
-                {syncFeedback && (
-                  <p
-                    role="status"
-                    className={`text-[11px] text-center font-medium ${
-                      syncFeedback === 'ok' ? 'text-accent' : 'text-red-400'
-                    }`}
-                  >
-                    {syncFeedback === 'ok'
-                      ? t.settings_health_sync_ok
-                      : t.settings_health_sync_err}
-                  </p>
-                )}
-              </>
-            )}
+        {isSelectedToday && isMotionSensorReceiving && (
+          <div className="mt-3 pt-2.5 border-t border-subtle w-full flex items-center justify-center gap-1.5 font-mono text-[11px] text-accent">
+            <Activity className="w-3.5 h-3.5 shrink-0" />
+            <span>{t.steps_sensor_live}</span>
           </div>
         )}
       </div>

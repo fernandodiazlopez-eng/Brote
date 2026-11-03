@@ -4,19 +4,32 @@
  * - Mirada curiosa según ubicación (hacia abajo en Rutinas y Estadísticas; hacia el avatar o al frente en Perfil) y parpadeo ocasional.
  * - Nivel 3: Desbloqueo de Bug en la interfaz y carrusel de metro.
  * - Nivel 4: Acariciar con Doble Tap (ojos en arcos felices, parpadeo y destello de chispas del color secundario; sin texto).
- * - Nivel 5: Jugar con Bug al mantener pulsado (pasa a círculo completo al cogerlo y lanzarlo, rebota limpio con chispas y sonido 8-bits, frena progresivamente y reaparece de inmediato en su sitio).
+ * - Nivel 5: Jugar con Bug con el dedo (al mantener pulsado o arrastrarlo pasa a ser un círculo completo, rebota limpio con chispas y sonido 8-bits, frena progresivamente y reaparece de inmediato en su sitio).
+ * - Reacciones vivas: salta feliz al desbloquear un logro, pega un saltito al subir la app hasta el tope y se asusta cuando suena la alarma del temporizador.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { getBugMilestoneCopy } from '../data/bugCompanionData';
 import { useI18n } from '../i18n/I18nContext';
 import { BugUnlockMilestone } from '../types';
 import { playBugBounceSound } from '../utils/audioEffects';
 
-export type BugEyeExpression = 'neutral' | 'blink' | 'happy' | 'sad';
+export type BugEyeExpression = 'neutral' | 'blink' | 'happy' | 'sad' | 'scared';
 export type BugGazeMode = 'down' | 'avatar-front';
 export type BugGlobalMood = 'none' | 'sad' | 'happy';
+
+export interface BugReactionContextValue {
+  isAlarmRinging: boolean;
+  trophyCelebrateToken: number;
+  scrollTopHopToken: number;
+}
+
+export const BugReactionContext = createContext<BugReactionContextValue>({
+  isAlarmRinging: false,
+  trophyCelebrateToken: 0,
+  scrollTopHopToken: 0,
+});
 
 interface PixelSparkParticle {
   x: number;
@@ -98,6 +111,19 @@ export const BugPixelGraphic: React.FC<BugPixelGraphicProps> = React.memo(({
           <rect x={11} y={8} width={2} height={1} />
         </g>
       )}
+
+      {expression === 'scared' && (
+        <g>
+          {/* Signo de exclamación 8-bits sobre la cabeza al asustarse con la alarma */}
+          <rect x={7} y={-6.5} width={2} height={3.5} fill="var(--app-accent-fill)" />
+          <rect x={7} y={-2} width={2} height={1.5} fill="var(--app-accent-fill)" />
+          {/* Ojos desorbitados 8-bits (anillos abiertos 4×4 de alto contraste) */}
+          <rect x={3} y={5} width={4} height={4} fill="var(--app-accent-fg)" />
+          <rect x={4} y={6} width={2} height={2} fill="var(--app-accent-fill)" />
+          <rect x={9} y={5} width={4} height={4} fill="var(--app-accent-fg)" />
+          <rect x={10} y={6} width={2} height={2} fill="var(--app-accent-fill)" />
+        </g>
+      )}
     </g>
   );
 });
@@ -117,6 +143,9 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
   canLaunchHockey,
   className = '',
 }) => {
+  const { isAlarmRinging, trophyCelebrateToken, scrollTopHopToken } =
+    useContext(BugReactionContext);
+
   const [gazeOffset, setGazeOffset] = useState<{ x: -1 | 0 | 1; y: -1 | 0 | 1 }>(() =>
     gazeMode === 'down' ? { x: 0, y: 1 } : { x: 0, y: 0 }
   );
@@ -124,8 +153,18 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
   const [localPetPhase, setLocalPetPhase] = useState<'none' | 'happy' | 'blink'>('none');
   const [respawnKey, setRespawnKey] = useState(0);
 
-  // Estado para modo Air Hockey (Nivel 50+)
+  // Estados de saltos reactivos (logro desbloqueado / tope superior de la app)
+  const [activeJumpAnim, setActiveJumpAnim] = useState<'none' | 'trophy' | 'top-hop'>('none');
+  const [jumpAnimKey, setJumpAnimKey] = useState(0);
+  const lastSeenTrophyTokenRef = useRef(trophyCelebrateToken);
+  const lastSeenTopHopTokenRef = useRef(scrollTopHopToken);
+  const jumpTimerRef = useRef<number | null>(null);
+
+  // Estado para modo Air Hockey (Nivel 5+)
   const [hockeyMode, setHockeyMode] = useState<'idle' | 'grabbed' | 'flying'>('idle');
+  const hockeyModeRef = useRef<'idle' | 'grabbed' | 'flying'>('idle');
+  hockeyModeRef.current = hockeyMode;
+
   const [puckExpression, setPuckExpression] = useState<BugEyeExpression>('neutral');
   const [viewportSize, setViewportSize] = useState<{ w: number; h: number }>(() => ({
     w: typeof window !== 'undefined' ? window.innerWidth : 390,
@@ -138,8 +177,10 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
   const petTimersRef = useRef<number[]>([]);
   const lastTapMsRef = useRef<number>(0);
 
-  // Referencias mutables de física Air Hockey (60/120fps sin re-renderizar React en cada frame)
+  // Referencias mutables de captura táctil y física Air Hockey (60/120fps)
   const longPressTimerRef = useRef<number | null>(null);
+  const isPressingRef = useRef<boolean>(false);
+  const activePointerIdRef = useRef<number | null>(null);
   const downOriginRef = useRef<{ x: number; y: number } | null>(null);
   const pointerHistoryRef = useRef<{ x: number; y: number; t: number }[]>([]);
   const puckPosRef = useRef<{ x: number; y: number; vx: number; vy: number }>({
@@ -161,7 +202,7 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
 
   // Mirada curiosa y parpadeo ocasional en reposo
   useEffect(() => {
-    if (hockeyMode !== 'idle') return;
+    if (hockeyMode !== 'idle' || isAlarmRinging) return;
 
     let actionTimer: number | null = null;
     let blinkResetTimer: number | null = null;
@@ -178,13 +219,11 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
 
         const roll = Math.random();
         if (roll < 0.42) {
-          // Parpadeo corto ocasional
           setIsIdleBlinking(true);
           blinkResetTimer = window.setTimeout(() => {
             if (!cancelled) setIsIdleBlinking(false);
           }, 125);
         } else if (gazeMode === 'down') {
-          // Mirada curiosa hacia abajo (rutinas / gráficos)
           const downChoices: { x: -1 | 0 | 1; y: -1 | 0 | 1 }[] = [
             { x: 0, y: 1 },
             { x: -1, y: 1 },
@@ -198,7 +237,6 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
           };
           setGazeOffset(picked);
         } else {
-          // Perfil (zona inferior izquierda del avatar): mira hacia el avatar (arriba-derecha / derecha) o al frente
           const profileChoices: { x: -1 | 0 | 1; y: -1 | 0 | 1 }[] = [
             { x: 0, y: 0 },
             { x: 1, y: -1 },
@@ -224,30 +262,21 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
       if (actionTimer !== null) window.clearTimeout(actionTimer);
       if (blinkResetTimer !== null) window.clearTimeout(blinkResetTimer);
     };
-  }, [gazeMode, hockeyMode]);
+  }, [gazeMode, hockeyMode, isAlarmRinging]);
 
   // Limpieza global al desmontar
   useEffect(() => {
     return () => {
       if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
+      if (jumpTimerRef.current !== null) window.clearTimeout(jumpTimerRef.current);
       if (petRafRef.current !== null) window.cancelAnimationFrame(petRafRef.current);
       if (flightRafRef.current !== null) window.cancelAnimationFrame(flightRafRef.current);
       petTimersRef.current.forEach((id) => window.clearTimeout(id));
     };
   }, []);
 
-  // Destello de chispas 8-bits al acariciar (Doble Tap en Nivel 5+)
-  const triggerPetSparksAndExpression = useCallback(() => {
-    petTimersRef.current.forEach((id) => window.clearTimeout(id));
-    petTimersRef.current = [];
-
-    // Ojos en arco -> parpadeo feliz -> ojos en arco
-    setLocalPetPhase('happy');
-    const t1 = window.setTimeout(() => setLocalPetPhase('blink'), 170);
-    const t2 = window.setTimeout(() => setLocalPetPhase('happy'), 280);
-    const t3 = window.setTimeout(() => setLocalPetPhase('none'), 1450);
-    petTimersRef.current.push(t1, t2, t3);
-
+  // Destello de chispas 8-bits (usado al acariciar y al celebrar un logro)
+  const emitLocalSparksBurst = useCallback(() => {
     if (petRafRef.current !== null) {
       window.cancelAnimationFrame(petRafRef.current);
       petRafRef.current = null;
@@ -323,6 +352,89 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
     petRafRef.current = window.requestAnimationFrame(stepSparks);
   }, []);
 
+  const triggerPetSparksAndExpression = useCallback(() => {
+    petTimersRef.current.forEach((id) => window.clearTimeout(id));
+    petTimersRef.current = [];
+
+    setLocalPetPhase('happy');
+    const t1 = window.setTimeout(() => setLocalPetPhase('blink'), 170);
+    const t2 = window.setTimeout(() => setLocalPetPhase('happy'), 280);
+    const t3 = window.setTimeout(() => setLocalPetPhase('none'), 1450);
+    petTimersRef.current.push(t1, t2, t3);
+
+    emitLocalSparksBurst();
+  }, [emitLocalSparksBurst]);
+
+  // Reacción 1: Salto feliz cuando el usuario desbloquea un logro
+  useEffect(() => {
+    if (trophyCelebrateToken <= lastSeenTrophyTokenRef.current) return;
+    lastSeenTrophyTokenRef.current = trophyCelebrateToken;
+    if (hockeyModeRef.current !== 'idle' || isAlarmRinging) return;
+
+    if (jumpTimerRef.current !== null) window.clearTimeout(jumpTimerRef.current);
+    petTimersRef.current.forEach((id) => window.clearTimeout(id));
+    petTimersRef.current = [];
+
+    setLocalPetPhase('happy');
+    const happyEndId = window.setTimeout(() => setLocalPetPhase('none'), 2400);
+    petTimersRef.current.push(happyEndId);
+
+    setActiveJumpAnim('trophy');
+    setJumpAnimKey((k) => k + 1);
+    emitLocalSparksBurst();
+
+    jumpTimerRef.current = window.setTimeout(() => {
+      setActiveJumpAnim('none');
+      jumpTimerRef.current = null;
+    }, 1300);
+  }, [trophyCelebrateToken, isAlarmRinging, emitLocalSparksBurst]);
+
+  // Reacción 2: Saltito cuando el usuario sube la app hasta el tope
+  useEffect(() => {
+    if (scrollTopHopToken <= lastSeenTopHopTokenRef.current) return;
+    lastSeenTopHopTokenRef.current = scrollTopHopToken;
+    if (hockeyModeRef.current !== 'idle' || isAlarmRinging || activeJumpAnim === 'trophy') return;
+
+    if (jumpTimerRef.current !== null) window.clearTimeout(jumpTimerRef.current);
+    setLocalPetPhase('happy');
+    const calmId = window.setTimeout(() => setLocalPetPhase('none'), 420);
+    petTimersRef.current.push(calmId);
+
+    setActiveJumpAnim('top-hop');
+    setJumpAnimKey((k) => k + 1);
+
+    jumpTimerRef.current = window.setTimeout(() => {
+      setActiveJumpAnim('none');
+      jumpTimerRef.current = null;
+    }, 360);
+  }, [scrollTopHopToken, isAlarmRinging, activeJumpAnim]);
+
+  // Bloquear gestos nativos del navegador móvil sobre Bug (selección de texto, menú contextual y scroll accidental)
+  useEffect(() => {
+    const el = perchButtonRef.current;
+    if (!el || (!canLaunchHockey && !canPet)) return;
+
+    const handleNativeTouchStart = (ev: TouchEvent) => {
+      ev.stopPropagation();
+      if (canLaunchHockey && ev.cancelable) {
+        ev.preventDefault();
+      }
+    };
+
+    const handleNativeTouchMove = (ev: TouchEvent) => {
+      if ((isPressingRef.current || hockeyModeRef.current === 'grabbed') && ev.cancelable) {
+        ev.preventDefault();
+      }
+    };
+
+    el.addEventListener('touchstart', handleNativeTouchStart, { passive: false });
+    el.addEventListener('touchmove', handleNativeTouchMove, { passive: false });
+    return () => {
+      el.removeEventListener('touchstart', handleNativeTouchStart);
+      el.removeEventListener('touchmove', handleNativeTouchMove);
+    };
+  }, [canLaunchHockey, canPet]);
+
   const spawnWallCollisionSparks = useCallback((hitX: number, hitY: number, nx: number, ny: number) => {
     const baseAngle = Math.atan2(ny, nx);
     for (let i = 0; i < 8; i += 1) {
@@ -341,7 +453,41 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
     }
   }, []);
 
-  // Seguimiento de arrastre durante Long Press (modo Air Hockey)
+  const enterGrabbedHockeyMode = useCallback((initialX: number, initialY: number) => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    if (hockeyModeRef.current !== 'idle') return;
+
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const clampedX = Math.max(16, Math.min(w - 16, initialX));
+    const clampedY = Math.max(16, Math.min(h - 16, initialY));
+    const now = performance.now();
+
+    setViewportSize({ w, h });
+    puckPosRef.current = { x: clampedX, y: clampedY, vx: 0, vy: 0 };
+    if (pointerHistoryRef.current.length === 0) {
+      pointerHistoryRef.current = [{ x: clampedX, y: clampedY, t: now }];
+    } else {
+      pointerHistoryRef.current.push({ x: clampedX, y: clampedY, t: now });
+    }
+    wallSparksRef.current = [];
+    setPuckExpression('happy');
+    hockeyModeRef.current = 'grabbed';
+    setHockeyMode('grabbed');
+
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      try {
+        navigator.vibrate(18);
+      } catch {
+        // Ignorar restricciones de vibración
+      }
+    }
+  }, []);
+
+  // Seguimiento fluido del dedo o ratón mientras Bug está agarrado (modo Air Hockey)
   useEffect(() => {
     if (hockeyMode !== 'grabbed') return;
 
@@ -356,13 +502,12 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
 
     updatePuckTransform(puckPosRef.current.x, puckPosRef.current.y);
 
-    const handlePointerMove = (e: PointerEvent) => {
-      if (e.cancelable) e.preventDefault();
+    const recordMoveAt = (clientX: number, clientY: number) => {
       const now = performance.now();
       const w = window.innerWidth;
       const h = window.innerHeight;
-      const clampedX = Math.max(16, Math.min(w - 16, e.clientX));
-      const clampedY = Math.max(16, Math.min(h - 16, e.clientY));
+      const clampedX = Math.max(16, Math.min(w - 16, clientX));
+      const clampedY = Math.max(16, Math.min(h - 16, clientY));
 
       puckPosRef.current.x = clampedX;
       puckPosRef.current.y = clampedY;
@@ -370,12 +515,34 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
 
       const history = pointerHistoryRef.current;
       history.push({ x: clampedX, y: clampedY, t: now });
-      while (history.length > 1 && now - history[0].t > 105) {
+      while (history.length > 1 && now - history[0].t > 165) {
         history.shift();
       }
     };
 
+    const handlePointerMove = (e: PointerEvent) => {
+      if (activePointerIdRef.current !== null && e.pointerId !== activePointerIdRef.current) {
+        return;
+      }
+      if (e.cancelable) e.preventDefault();
+      recordMoveAt(e.clientX, e.clientY);
+    };
+
+    const handleTouchMoveWindow = (e: TouchEvent) => {
+      if (e.cancelable) e.preventDefault();
+      const touch = e.touches[0];
+      if (!touch) return;
+      recordMoveAt(touch.clientX, touch.clientY);
+    };
+
+    let didFinish = false;
     const finishGrabAndLaunch = () => {
+      if (didFinish) return;
+      didFinish = true;
+      isPressingRef.current = false;
+      activePointerIdRef.current = null;
+      downOriginRef.current = null;
+
       const now = performance.now();
       const history = pointerHistoryRef.current;
       let vx = 0;
@@ -386,50 +553,58 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
         let anchor = history[0];
         for (let i = history.length - 2; i >= 0; i -= 1) {
           const dtMs = latest.t - history[i].t;
-          if (dtMs >= 18 && dtMs <= 95) {
+          if (dtMs >= 14 && dtMs <= 145) {
             anchor = history[i];
           }
         }
-        const dtSec = (latest.t - anchor.t) / 1000;
+        const dtSec = Math.max(0.004, (latest.t - anchor.t) / 1000);
         const idleSinceLastMoveMs = now - latest.t;
-        if (dtSec > 0.004 && idleSinceLastMoveMs < 95) {
-          vx = ((latest.x - anchor.x) / dtSec) * 1.12;
-          vy = ((latest.y - anchor.y) / dtSec) * 1.12;
+        if (idleSinceLastMoveMs < 220) {
+          vx = ((latest.x - anchor.x) / dtSec) * 1.18;
+          vy = ((latest.y - anchor.y) / dtSec) * 1.18;
         }
       }
 
       const rawSpeed = Math.hypot(vx, vy);
-      if (rawSpeed < 95) {
-        // Si se soltó quieto sin lanzarlo, reaparece de inmediato en su sitio habitual
+      if (rawSpeed < 50) {
+        // Si se soltó completamente quieto sin lanzarlo, reaparece de inmediato en su sitio habitual
+        hockeyModeRef.current = 'idle';
         setHockeyMode('idle');
         setPuckExpression('neutral');
         setRespawnKey((k) => k + 1);
         return;
       }
 
-      const maxSpeed = 2350;
-      const clampedSpeed = Math.min(maxSpeed, Math.max(220, rawSpeed));
+      const maxSpeed = 2400;
+      const clampedSpeed = Math.min(maxSpeed, Math.max(280, rawSpeed));
       const scale = clampedSpeed / rawSpeed;
       puckPosRef.current.vx = vx * scale;
       puckPosRef.current.vy = vy * scale;
       setViewportSize({ w: window.innerWidth, h: window.innerHeight });
       setPuckExpression('happy');
-      bounceHappyUntilRef.current = now + 320;
+      bounceHappyUntilRef.current = now + 340;
+      hockeyModeRef.current = 'flying';
       setHockeyMode('flying');
     };
 
     window.addEventListener('pointermove', handlePointerMove, { passive: false });
+    window.addEventListener('touchmove', handleTouchMoveWindow, { passive: false });
     window.addEventListener('pointerup', finishGrabAndLaunch);
     window.addEventListener('pointercancel', finishGrabAndLaunch);
+    window.addEventListener('touchend', finishGrabAndLaunch);
+    window.addEventListener('touchcancel', finishGrabAndLaunch);
 
     return () => {
       window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('touchmove', handleTouchMoveWindow);
       window.removeEventListener('pointerup', finishGrabAndLaunch);
       window.removeEventListener('pointercancel', finishGrabAndLaunch);
+      window.removeEventListener('touchend', finishGrabAndLaunch);
+      window.removeEventListener('touchcancel', finishGrabAndLaunch);
     };
   }, [hockeyMode]);
 
-  // Bucle físico de disco Air Hockey (Nivel 50+)
+  // Bucle físico de disco Air Hockey (Nivel 5+)
   useEffect(() => {
     if (hockeyMode !== 'flying') return;
 
@@ -483,8 +658,11 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
         bounceHappyUntilRef.current = now + 280;
       }
 
-      const desiredExpr: BugEyeExpression =
-        now < bounceHappyUntilRef.current ? 'happy' : 'neutral';
+      const desiredExpr: BugEyeExpression = isAlarmRinging
+        ? 'scared'
+        : now < bounceHappyUntilRef.current
+        ? 'happy'
+        : 'neutral';
       if (desiredExpr !== currentExpr) {
         currentExpr = desiredExpr;
         setPuckExpression(desiredExpr);
@@ -540,9 +718,9 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
 
       const remainingSpeed = Math.hypot(state.vx, state.vy);
       if (remainingSpeed <= 15) {
-        // Una vez frenado por completo, desaparece y reaparece de inmediato en su sitio de siempre
         wallSparksRef.current = [];
         flightRafRef.current = null;
+        hockeyModeRef.current = 'idle';
         setHockeyMode('idle');
         setPuckExpression('neutral');
         setRespawnKey((k) => k + 1);
@@ -560,73 +738,101 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
         flightRafRef.current = null;
       }
     };
-  }, [hockeyMode, spawnWallCollisionSparks]);
+  }, [hockeyMode, isAlarmRinging, spawnWallCollisionSparks]);
 
-  const clearLongPress = () => {
+  const clearPendingHold = () => {
     if (longPressTimerRef.current !== null) {
       window.clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
     }
+    isPressingRef.current = false;
+    activePointerIdRef.current = null;
     downOriginRef.current = null;
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.stopPropagation();
-    if (hockeyMode !== 'idle') return;
+    if (canLaunchHockey && e.cancelable) {
+      e.preventDefault();
+    }
+    if (hockeyModeRef.current !== 'idle') return;
 
-    clearLongPress();
+    clearPendingHold();
+    isPressingRef.current = true;
+    activePointerIdRef.current = e.pointerId;
     const startX = e.clientX;
     const startY = e.clientY;
+    const now = performance.now();
     downOriginRef.current = { x: startX, y: startY };
+    pointerHistoryRef.current = [{ x: startX, y: startY, t: now }];
+
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // Ignorar si el navegador no soporta captura en este puntero
+    }
 
     if (canLaunchHockey) {
       longPressTimerRef.current = window.setTimeout(() => {
         longPressTimerRef.current = null;
-        const rect = perchButtonRef.current?.getBoundingClientRect();
-        const cx = rect ? rect.left + rect.width / 2 : startX;
-        const cy = rect ? rect.top + rect.height / 2 : startY;
-        const now = performance.now();
-
-        setViewportSize({ w: window.innerWidth, h: window.innerHeight });
-        puckPosRef.current = { x: cx, y: cy, vx: 0, vy: 0 };
-        pointerHistoryRef.current = [{ x: cx, y: cy, t: now }];
-        wallSparksRef.current = [];
-        setPuckExpression('happy');
-        setHockeyMode('grabbed');
-
-        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-          try {
-            navigator.vibrate(18);
-          } catch {
-            // Ignorar restricciones de vibración
-          }
-        }
-      }, 250);
+        if (!isPressingRef.current || hockeyModeRef.current !== 'idle') return;
+        const latestSample =
+          pointerHistoryRef.current[pointerHistoryRef.current.length - 1] || {
+            x: startX,
+            y: startY,
+          };
+        enterGrabbedHockeyMode(latestSample.x, latestSample.y);
+      }, 155);
     }
   };
 
   const handlePointerMoveLocal = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!downOriginRef.current || longPressTimerRef.current === null) return;
+    if (!isPressingRef.current || hockeyModeRef.current !== 'idle' || !downOriginRef.current) {
+      return;
+    }
+    const now = performance.now();
+    pointerHistoryRef.current.push({ x: e.clientX, y: e.clientY, t: now });
+    while (pointerHistoryRef.current.length > 1 && now - pointerHistoryRef.current[0].t > 165) {
+      pointerHistoryRef.current.shift();
+    }
+
     const dist = Math.hypot(
       e.clientX - downOriginRef.current.x,
       e.clientY - downOriginRef.current.y
     );
-    if (dist > 11) {
-      clearLongPress();
+
+    if (dist >= 8) {
+      if (canLaunchHockey) {
+        // Si el usuario desliza el dedo sobre Bug, lo coge como círculo completo al instante para lanzarlo
+        enterGrabbedHockeyMode(e.clientX, e.clientY);
+      } else {
+        clearPendingHold();
+      }
     }
   };
 
   const handlePointerUpLocal = (e: React.PointerEvent<HTMLDivElement>) => {
     e.stopPropagation();
-    const wasWaitingLongPress = longPressTimerRef.current !== null || !canLaunchHockey;
-    clearLongPress();
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // Ignorar
+    }
 
-    if (hockeyMode !== 'idle' || !wasWaitingLongPress) return;
+    // Si ya está agarrado o volando, el listener global se encarga del lanzamiento
+    if (hockeyModeRef.current !== 'idle') return;
+
+    const wasQuickTap = isPressingRef.current;
+    clearPendingHold();
+
+    if (!wasQuickTap) return;
 
     if (canPet) {
       const now = Date.now();
-      if (now - lastTapMsRef.current <= 330) {
+      if (now - lastTapMsRef.current <= 380) {
         lastTapMsRef.current = 0;
         triggerPetSparksAndExpression();
       } else {
@@ -635,20 +841,31 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
     }
   };
 
-  const resolvedExpression: BugEyeExpression =
-    localPetPhase === 'blink'
-      ? 'blink'
-      : localPetPhase === 'happy'
-      ? 'happy'
-      : globalMood === 'sad'
-      ? 'sad'
-      : globalMood === 'happy'
-      ? 'happy'
-      : isIdleBlinking
-      ? 'blink'
-      : 'neutral';
+  const resolvedExpression: BugEyeExpression = isAlarmRinging
+    ? 'scared'
+    : localPetPhase === 'blink'
+    ? 'blink'
+    : localPetPhase === 'happy'
+    ? 'happy'
+    : globalMood === 'sad'
+    ? 'sad'
+    : globalMood === 'happy'
+    ? 'happy'
+    : isIdleBlinking
+    ? 'blink'
+    : 'neutral';
 
   const isDetached = hockeyMode !== 'idle';
+
+  const perchedMotionClass = isAlarmRinging
+    ? 'animate-bug-scared'
+    : activeJumpAnim === 'trophy'
+    ? 'animate-bug-trophy-jump'
+    : activeJumpAnim === 'top-hop'
+    ? 'animate-bug-top-hop'
+    : respawnKey > 0
+    ? 'animate-bug-respawn'
+    : '';
 
   return (
     <>
@@ -659,7 +876,8 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
         aria-label="Bug"
         onClick={(e) => e.stopPropagation()}
         onContextMenu={(e) => {
-          if (canLaunchHockey) e.preventDefault();
+          e.preventDefault();
+          e.stopPropagation();
         }}
         onDoubleClick={(e) => {
           e.stopPropagation();
@@ -668,24 +886,28 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMoveLocal}
         onPointerUp={handlePointerUpLocal}
-        onPointerCancel={clearLongPress}
+        onPointerCancel={() => {
+          if (hockeyModeRef.current === 'idle') {
+            clearPendingHold();
+          }
+        }}
         onKeyDown={(e) => {
           if ((e.key === 'Enter' || e.key === ' ') && canPet) {
             e.preventDefault();
             triggerPetSparksAndExpression();
           }
         }}
-        className={`inline-flex items-end justify-center select-none ${
+        className={`relative z-20 inline-flex items-end justify-center min-w-[46px] min-h-[42px] -mx-[7px] -mt-[14px] pt-[14px] select-none ${
           canPet || canLaunchHockey ? 'cursor-pointer' : 'cursor-default'
         } ${
           canLaunchHockey ? 'touch-none' : 'touch-manipulation'
-        } leading-none ${isDetached ? 'opacity-0 pointer-events-none' : ''} ${className}`}
+        } leading-none ${hockeyMode === 'flying' ? 'pointer-events-none' : ''} ${className}`}
       >
         <svg
-          key={respawnKey}
+          key={`${respawnKey}-${jumpAnimKey}-${isAlarmRinging ? 'alarm' : 'calm'}`}
           viewBox="-10 -12 36 26"
           className={`w-[54px] h-[39px] -mx-[11px] -mt-[11px] block overflow-visible pointer-events-none ${
-            respawnKey > 0 ? 'animate-bug-respawn' : ''
+            isDetached ? 'opacity-0' : perchedMotionClass
           }`}
           shapeRendering="crispEdges"
         >

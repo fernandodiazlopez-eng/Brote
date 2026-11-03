@@ -1,10 +1,13 @@
 /**
- * Efectos de sonido Web Audio + respaldo en segundo plano y pantalla bloqueada:
- * - En reposo usa sesión 'ambient' y suspende el AudioContext para no interferir con Spotify / Apple Music.
- * - Mientras corre una cuenta atrás activa, mantiene vivo el canal de audio con un bucle PCM silencioso
- *   corto (< 5s para no robar el foco multimedia en Android), cambia a sesión 'transient' en iOS 17+
- *   (que sí suena con la pantalla bloqueada sin cortar la música), pre-programa la alarma directamente
- *   en el reloj de hardware de WebAudio y delega también el aviso sonoro/vibración en el Service Worker.
+ * Motor de audio de Upgrade con alarma real en segundo plano y pantalla bloqueada:
+ * - Al iniciar la cuenta atrás (dentro del toque directo del usuario), genera en < 2 ms una pista WAV
+ *   continua (`[piloto inaudible -80 dBFS durante el descanso] + [45 s de alarma potente multi-armónica]`,
+ *   siempre >= 6 s para que Android Chrome e iOS Safari la traten como reproducción multimedia real
+ *   `playback` y NO la silencien ni pausen al salir de la app o apagar la pantalla).
+ * - Como el elemento `<audio>` ya está reproduciéndose desde el gesto del usuario, al llegar a `00:00`
+ *   el decodificador nativo del móvil reproduce la alarma a máximo volumen aunque el sistema haya
+ *   congelado JavaScript en segundo plano.
+ * - En reposo (sin temporizador activo), libera la sesión a `'ambient'` y suspende el AudioContext.
  */
 
 import { TrophyTier } from '../types';
@@ -15,16 +18,21 @@ let idleSuspendTimeoutId: number | null = null;
 let activeSoundEffectsCount = 0;
 
 let isCountdownArmed = false;
-let keepAliveSourceNode: AudioScheduledSourceNode | null = null;
-let keepAliveGainNode: GainNode | null = null;
-let preScheduledAlarmNodes: AudioNode[] = [];
+let countdownTrackAudio: HTMLAudioElement | null = null;
+let countdownTrackBlobUrl: string | null = null;
+let alarmLoopTrackAudio: HTMLAudioElement | null = null;
+let alarmLoopTrackBlobUrl: string | null = null;
 
-let silentWavUrl: string | null = null;
-let alarmChimeWavUrl: string | null = null;
-let silentKeepAliveAudio: HTMLAudioElement | null = null;
-let alarmFallbackAudio: HTMLAudioElement | null = null;
+const TRACK_SAMPLE_RATE = 8000;
+const CHIME_CYCLE_SEC = 1.5;
+const CHIME_CYCLE_SAMPLES = Math.floor(TRACK_SAMPLE_RATE * CHIME_CYCLE_SEC); // 12,000 muestras
+const ALARM_TAIL_CYCLES = 30; // 45 segundos continuos de alarma potente integrada en la pista
+const MAX_PREBAKED_COUNTDOWN_SEC = 1800; // Hasta 30 min pre-renderizados en memoria
 
-function configureAudioSessionMode(mode: 'ambient' | 'transient'): void {
+let cachedPilotOneSecInt16: Int16Array | null = null;
+let cachedAlarmCycleInt16: Int16Array | null = null;
+
+function configureAudioSessionMode(mode: 'ambient' | 'playback'): void {
   if (typeof navigator === 'undefined') return;
   try {
     const navWithAudioSession = navigator as Navigator & {
@@ -32,23 +40,43 @@ function configureAudioSessionMode(mode: 'ambient' | 'transient'): void {
     };
     if (!navWithAudioSession.audioSession) return;
     if (navWithAudioSession.audioSession.type !== mode) {
-      try {
-        navWithAudioSession.audioSession.type = mode;
-      } catch {
-        if (mode === 'transient') {
-          navWithAudioSession.audioSession.type = 'playback';
-        }
-      }
+      navWithAudioSession.audioSession.type = mode;
     }
   } catch {
-    // Ignorar en navegadores sin soporte para navigator.audioSession
+    // Ignorar en navegadores sin navigator.audioSession
+  }
+}
+
+function updateMediaSessionForTimer(active: boolean, title?: string, onStop?: () => void): void {
+  if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+  try {
+    if (!active) {
+      navigator.mediaSession.playbackState = 'none';
+      navigator.mediaSession.metadata = null;
+      navigator.mediaSession.setActionHandler('pause', null);
+      navigator.mediaSession.setActionHandler('stop', null);
+      return;
+    }
+    if (typeof MediaMetadata !== 'undefined') {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: title || 'Temporizador · Upgrade',
+        artist: 'Upgrade',
+      });
+    }
+    navigator.mediaSession.playbackState = 'playing';
+    if (onStop) {
+      navigator.mediaSession.setActionHandler('pause', onStop);
+      navigator.mediaSession.setActionHandler('stop', onStop);
+    }
+  } catch {
+    // Ignorar restricciones de MediaSession
   }
 }
 
 function getOrCreateAudioContext(): AudioContext | null {
   if (typeof window === 'undefined') return null;
   configureAudioSessionMode(
-    isCountdownArmed || alarmLoopIntervalId !== null ? 'transient' : 'ambient'
+    isCountdownArmed || alarmLoopIntervalId !== null ? 'playback' : 'ambient'
   );
 
   const AudioContextClass =
@@ -80,181 +108,175 @@ function scheduleAudioSuspendWhenIdle(delayMs = 180): void {
     }
 
     configureAudioSessionMode('ambient');
+    updateMediaSessionForTimer(false);
     if (sharedAudioContext && sharedAudioContext.state === 'running') {
       void sharedAudioContext.suspend().catch(() => {});
     }
   }, delayMs);
 }
 
-/** Genera un archivo WAV PCM de 16 bits en memoria (sin archivos externos). */
-function buildMonoWavBlobUrl(samples: Float32Array, sampleRate: number): string | null {
-  if (typeof Blob === 'undefined' || typeof URL === 'undefined') return null;
-  const numSamples = samples.length;
-  const buffer = new ArrayBuffer(44 + numSamples * 2);
-  const view = new DataView(buffer);
+/** Plantilla de 1 segundo con señal piloto inaudible (-80 dBFS) para evitar corte por detector de silencio del SO. */
+function getPilotOneSecTemplate(): Int16Array {
+  if (cachedPilotOneSecInt16) return cachedPilotOneSecInt16;
+  const arr = new Int16Array(TRACK_SAMPLE_RATE);
+  for (let i = 0; i < TRACK_SAMPLE_RATE; i += 1) {
+    // Onda suave de 25 Hz a ±3 LSB sobre 32767 (-80.7 dBFS: inaudible al oído, no-cero para el DAC móvil)
+    arr[i] = (i % 320) < 160 ? 3 : -3;
+  }
+  cachedPilotOneSecInt16 = arr;
+  return arr;
+}
 
+/** Plantilla de 1.5 segundos con el patrón de alarma rico en armónicos a alto volumen para altavoz móvil. */
+function getAlarmCycleTemplate(): Int16Array {
+  if (cachedAlarmCycleInt16) return cachedAlarmCycleInt16;
+  const arr = new Int16Array(CHIME_CYCLE_SAMPLES);
+
+  // Patrón rítmico urgente de alarma deportiva (4 pulsos brillantes + armónicos de presencia en 1.7–2.6 kHz)
+  const notes = [
+    { freq: 880, start: 0.0, dur: 0.16 },
+    { freq: 1046.5, start: 0.2, dur: 0.16 },
+    { freq: 880, start: 0.4, dur: 0.16 },
+    { freq: 1318.5, start: 0.6, dur: 0.36 },
+  ];
+
+  for (const n of notes) {
+    const startIdx = Math.floor(n.start * TRACK_SAMPLE_RATE);
+    const len = Math.floor(n.dur * TRACK_SAMPLE_RATE);
+    for (let i = 0; i < len && startIdx + i < CHIME_CYCLE_SAMPLES; i += 1) {
+      const t = i / TRACK_SAMPLE_RATE;
+      const attack = t < 0.012 ? t / 0.012 : 1;
+      const decay =
+        t < n.dur * 0.72
+          ? 1
+          : Math.max(0, 1 - (t - n.dur * 0.72) / (n.dur * 0.28));
+      const env = attack * decay;
+
+      const f1 = Math.sin(2 * Math.PI * n.freq * t);
+      const f2 = Math.sin(2 * Math.PI * (n.freq * 2) * t) * 0.42;
+      const f3 = Math.sin(2 * Math.PI * (n.freq * 3) * t) * 0.18;
+      // Compresión suave para sonar alto y claro en el altavoz del teléfono
+      const raw = (f1 + f2 + f3) * 0.72 * env;
+      const saturated = Math.tanh(raw * 1.45) * 0.94;
+      const mixed = arr[startIdx + i] / 32767 + saturated;
+      const clamped = Math.max(-0.98, Math.min(0.98, mixed));
+      arr[startIdx + i] = Math.round(clamped * 32767);
+    }
+  }
+
+  cachedAlarmCycleInt16 = arr;
+  return arr;
+}
+
+function writeWavHeader(view: DataView, numSamples: number, sampleRate: number): void {
   const writeStr = (offset: number, str: string) => {
     for (let i = 0; i < str.length; i += 1) {
       view.setUint8(offset + i, str.charCodeAt(i));
     }
   };
-
+  const byteSize = numSamples * 2;
   writeStr(0, 'RIFF');
-  view.setUint32(4, 36 + numSamples * 2, true);
+  view.setUint32(4, 36 + byteSize, true);
   writeStr(8, 'WAVE');
   writeStr(12, 'fmt ');
-  view.setUint32(16, 16, true); // PCM
-  view.setUint16(20, 1, true); // formato lineal
-  view.setUint16(22, 1, true); // mono
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM lineal
+  view.setUint16(22, 1, true); // Mono
   view.setUint32(24, sampleRate, true);
   view.setUint32(28, sampleRate * 2, true);
   view.setUint16(32, 2, true);
   view.setUint16(34, 16, true);
   writeStr(36, 'data');
-  view.setUint32(40, numSamples * 2, true);
+  view.setUint32(40, byteSize, true);
+}
 
-  let offset = 44;
-  for (let i = 0; i < numSamples; i += 1) {
-    const clamped = Math.max(-1, Math.min(1, samples[i]));
-    view.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
-    offset += 2;
+/**
+ * Construye instantáneamente (< 2 ms) un WAV continuo con `waitMs` de piloto inaudible
+ * seguidos de 45 segundos (30 ciclos) de alarma sonora potente.
+ */
+function buildCountdownPlusAlarmWavUrl(waitMs: number): string | null {
+  if (typeof Blob === 'undefined' || typeof URL === 'undefined') return null;
+
+  const clampedWaitSec = Math.max(0.05, Math.min(MAX_PREBAKED_COUNTDOWN_SEC, waitMs / 1000));
+  const waitSamples = Math.round(clampedWaitSec * TRACK_SAMPLE_RATE);
+  const alarmSamples = CHIME_CYCLE_SAMPLES * ALARM_TAIL_CYCLES;
+  const totalSamples = waitSamples + alarmSamples;
+
+  const buffer = new ArrayBuffer(44 + totalSamples * 2);
+  const view = new DataView(buffer);
+  writeWavHeader(view, totalSamples, TRACK_SAMPLE_RATE);
+
+  const pcm = new Int16Array(buffer, 44, totalSamples);
+  const pilotSec = getPilotOneSecTemplate();
+  const fullSecs = Math.floor(waitSamples / TRACK_SAMPLE_RATE);
+  let cursor = 0;
+  for (let s = 0; s < fullSecs; s += 1) {
+    pcm.set(pilotSec, cursor);
+    cursor += TRACK_SAMPLE_RATE;
+  }
+  const remWait = waitSamples - cursor;
+  if (remWait > 0) {
+    pcm.set(pilotSec.subarray(0, remWait), cursor);
+    cursor += remWait;
+  }
+
+  const alarmCycle = getAlarmCycleTemplate();
+  for (let c = 0; c < ALARM_TAIL_CYCLES; c += 1) {
+    pcm.set(alarmCycle, cursor);
+    cursor += CHIME_CYCLE_SAMPLES;
   }
 
   return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
 }
 
-function getOrCreateSilentWavUrl(): string | null {
-  if (silentWavUrl) return silentWavUrl;
-  // 1.0 segundo (< 5s para que Android Chrome lo clasifique como Ambient y no pause Spotify)
-  const sampleRate = 8000;
-  const samples = new Float32Array(sampleRate);
-  silentWavUrl = buildMonoWavBlobUrl(samples, sampleRate);
-  return silentWavUrl;
-}
-
-function getOrCreateAlarmChimeWavUrl(): string | null {
-  if (alarmChimeWavUrl) return alarmChimeWavUrl;
-  // Ciclo de 1.5s con las 4 notas de la alarma [880, 1046.5, 880, 1318.5]
-  const sampleRate = 22050;
-  const durationSec = 1.5;
-  const totalSamples = Math.floor(sampleRate * durationSec);
-  const samples = new Float32Array(totalSamples);
-
-  const notes = [
-    { freq: 880, start: 0.0, dur: 0.14 },
-    { freq: 1046.5, start: 0.18, dur: 0.14 },
-    { freq: 880, start: 0.36, dur: 0.14 },
-    { freq: 1318.5, start: 0.54, dur: 0.28 },
-  ];
-
-  for (const n of notes) {
-    const startIdx = Math.floor(n.start * sampleRate);
-    const len = Math.floor(n.dur * sampleRate);
-    for (let i = 0; i < len && startIdx + i < totalSamples; i += 1) {
-      const t = i / sampleRate;
-      const env =
-        t < 0.02 ? t / 0.02 : Math.pow(Math.max(0, 1 - (t - 0.02) / (n.dur - 0.02)), 2.1);
-      samples[startIdx + i] += Math.sin(2 * Math.PI * n.freq * t) * 0.42 * env;
+/** Pista de bucle continuo de 6 segundos (>= 5s para foco multimedia real en móvil) con 4 ciclos de alarma. */
+function getOrCreateAlarmLoopAudio(): HTMLAudioElement | null {
+  if (typeof Audio === 'undefined' || typeof Blob === 'undefined' || typeof URL === 'undefined') {
+    return null;
+  }
+  if (!alarmLoopTrackBlobUrl) {
+    const cycles = 4; // 4 * 1.5s = 6.0 segundos (>= 5s umbral de Android Chrome)
+    const totalSamples = CHIME_CYCLE_SAMPLES * cycles;
+    const buffer = new ArrayBuffer(44 + totalSamples * 2);
+    writeWavHeader(new DataView(buffer), totalSamples, TRACK_SAMPLE_RATE);
+    const pcm = new Int16Array(buffer, 44, totalSamples);
+    const cycle = getAlarmCycleTemplate();
+    for (let c = 0; c < cycles; c += 1) {
+      pcm.set(cycle, c * CHIME_CYCLE_SAMPLES);
     }
+    alarmLoopTrackBlobUrl = URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
   }
 
-  alarmChimeWavUrl = buildMonoWavBlobUrl(samples, sampleRate);
-  return alarmChimeWavUrl;
-}
-
-function getOrCreateSilentKeepAliveAudio(): HTMLAudioElement | null {
-  if (typeof Audio === 'undefined') return null;
-  if (!silentKeepAliveAudio) {
-    const url = getOrCreateSilentWavUrl();
-    if (!url) return null;
-    const el = new Audio(url);
+  if (!alarmLoopTrackAudio) {
+    const el = new Audio(alarmLoopTrackBlobUrl);
     el.loop = true;
-    el.volume = 0.01;
+    el.volume = 1.0;
+    el.preload = 'auto';
     el.setAttribute('playsinline', 'true');
-    silentKeepAliveAudio = el;
+    alarmLoopTrackAudio = el;
   }
-  return silentKeepAliveAudio;
+  return alarmLoopTrackAudio;
 }
 
-function getOrCreateAlarmFallbackAudio(): HTMLAudioElement | null {
-  if (typeof Audio === 'undefined') return null;
-  if (!alarmFallbackAudio) {
-    const url = getOrCreateAlarmChimeWavUrl();
-    if (!url) return null;
-    const el = new Audio(url);
-    el.loop = true;
-    el.volume = 0.9;
-    el.setAttribute('playsinline', 'true');
-    alarmFallbackAudio = el;
-  }
-  return alarmFallbackAudio;
-}
-
-function clearWebAudioPreScheduledAlarm(): void {
-  for (const node of preScheduledAlarmNodes) {
+function stopCountdownTrackAudio(): void {
+  if (countdownTrackAudio) {
     try {
-      if ('stop' in node && typeof (node as AudioScheduledSourceNode).stop === 'function') {
-        (node as AudioScheduledSourceNode).stop();
-      }
-    } catch {
-      // Ignorar nodos ya finalizados
-    }
-    try {
-      node.disconnect();
-    } catch {
-      // Ignorar desconexión repetida
-    }
-  }
-  preScheduledAlarmNodes = [];
-
-  if (keepAliveSourceNode) {
-    try {
-      keepAliveSourceNode.stop();
+      countdownTrackAudio.onended = null;
+      countdownTrackAudio.pause();
+      countdownTrackAudio.removeAttribute('src');
+      countdownTrackAudio.load();
     } catch {
       // Ignorar
     }
+  }
+  if (countdownTrackBlobUrl && typeof URL !== 'undefined') {
     try {
-      keepAliveSourceNode.disconnect();
+      URL.revokeObjectURL(countdownTrackBlobUrl);
     } catch {
       // Ignorar
     }
-    keepAliveSourceNode = null;
+    countdownTrackBlobUrl = null;
   }
-  if (keepAliveGainNode) {
-    try {
-      keepAliveGainNode.disconnect();
-    } catch {
-      // Ignorar
-    }
-    keepAliveGainNode = null;
-  }
-}
-
-function scheduleChimeBurstAtContextTime(ctx: AudioContext, baseStartTime: number): void {
-  const notesHz = [880, 1046.5, 880, 1318.5];
-  const offsetsSec = [0, 0.18, 0.36, 0.54];
-  const durationsSec = [0.14, 0.14, 0.14, 0.28];
-
-  notesHz.forEach((freq, idx) => {
-    const t0 = baseStartTime + offsetsSec[idx];
-    const dur = durationsSec[idx];
-
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(freq, t0);
-
-    gain.gain.setValueAtTime(0.0001, t0);
-    gain.gain.exponentialRampToValueAtTime(0.32, t0 + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(t0);
-    osc.stop(t0 + dur + 0.02);
-
-    preScheduledAlarmNodes.push(osc, gain);
-  });
 }
 
 function postMessageToServiceWorker(payload: Record<string, unknown>): void {
@@ -303,14 +325,14 @@ export interface AlarmNotificationCopy {
   title: string;
   tapToStop: string;
   restDone: string;
+  stopBtn?: string;
 }
 
 /**
- * Arma el audio y el aviso en segundo plano justo en el gesto táctil de iniciar la cuenta atrás:
- * 1) Mantiene activo el AudioContext y pre-programa la alarma en el reloj de hardware (`ctx.currentTime + delay`)
- *    para que suene puntual aunque el navegador congele los timers JS con la pantalla apagada.
- * 2) Activa un bucle WAV silencioso de 1s y desbloquea el reproductor HTML5 de respaldo.
- * 3) Programa la notificación con sonido y vibración en el Service Worker (si el usuario dio permiso).
+ * Arma y reproduce inmediatamente (dentro del toque del usuario) la pista continua de cuenta atrás + alarma:
+ * - Funciona fuera de la app (en WhatsApp, Instagram, etc.) y con la pantalla apagada porque el `<audio>`
+ *   de sesión `'playback'` ya está reproduciéndose desde el clic del usuario y contiene las muestras
+ *   de la alarma en el instante exacto `durationMs`.
  */
 export function armCountdownBackgroundAudio(
   durationMs: number,
@@ -318,78 +340,73 @@ export function armCountdownBackgroundAudio(
   copy?: AlarmNotificationCopy,
   notificationsEnabled = true
 ): void {
-  clearWebAudioPreScheduledAlarm();
+  stopCountdownTrackAudio();
   cancelScheduledSuspend();
   isCountdownArmed = true;
-  configureAudioSessionMode('transient');
-
-  const safeDelaySec = Math.max(0.05, durationMs / 1000);
+  configureAudioSessionMode('playback');
 
   try {
-    const ctx = getOrCreateAudioContext();
-    if (ctx) {
-      if (ctx.state === 'suspended') {
-        void ctx.resume().catch(() => {});
+    const wavUrl = buildCountdownPlusAlarmWavUrl(durationMs);
+    if (wavUrl && typeof Audio !== 'undefined') {
+      countdownTrackBlobUrl = wavUrl;
+      if (!countdownTrackAudio) {
+        countdownTrackAudio = new Audio();
+        countdownTrackAudio.setAttribute('playsinline', 'true');
       }
+      countdownTrackAudio.src = wavUrl;
+      countdownTrackAudio.loop = false;
+      countdownTrackAudio.muted = false;
+      countdownTrackAudio.volume = 1.0;
 
-      // Nodo silencioso continuo para evitar que el sistema suspenda el AudioContext durante el descanso
-      const silentGain = ctx.createGain();
-      silentGain.gain.setValueAtTime(0.00001, ctx.currentTime);
-      silentGain.connect(ctx.destination);
-      keepAliveGainNode = silentGain;
+      // Si tras los 45 s de alarma integrada aún no se ha parado, encadenar el bucle de alarma
+      countdownTrackAudio.onended = () => {
+        if (isCountdownArmed || alarmLoopIntervalId !== null) {
+          const loopEl = getOrCreateAlarmLoopAudio();
+          if (loopEl) {
+            loopEl.muted = false;
+            loopEl.volume = 1.0;
+            loopEl.currentTime = 0;
+            void loopEl.play().catch(() => {});
+          }
+        }
+      };
 
-      if (typeof ctx.createConstantSource === 'function') {
-        const constantSource = ctx.createConstantSource();
-        constantSource.offset.setValueAtTime(0.0001, ctx.currentTime);
-        constantSource.connect(silentGain);
-        constantSource.start();
-        keepAliveSourceNode = constantSource;
-      } else {
-        const silentOsc = ctx.createOscillator();
-        silentOsc.frequency.setValueAtTime(1, ctx.currentTime);
-        silentOsc.connect(silentGain);
-        silentOsc.start();
-        keepAliveSourceNode = silentOsc;
-      }
-
-      // Pre-programar 24 ráfagas (36 segundos) directamente en el hilo de hardware de WebAudio
-      const targetAudioTime = ctx.currentTime + safeDelaySec;
-      for (let cycle = 0; cycle < 24; cycle += 1) {
-        scheduleChimeBurstAtContextTime(ctx, targetAudioTime + cycle * 1.5);
-      }
+      void countdownTrackAudio.play().catch(() => {});
     }
-  } catch {
-    // Ignorar restricciones de WebAudio
-  }
 
-  // Bucle silencioso corto (<5s) y desbloqueo en gesto del canal HTML5 de respaldo
-  try {
-    const silentAudio = getOrCreateSilentKeepAliveAudio();
-    if (silentAudio) {
-      silentAudio.currentTime = 0;
-      void silentAudio.play().catch(() => {});
-    }
-    const fallbackAudio = getOrCreateAlarmFallbackAudio();
-    if (fallbackAudio && fallbackAudio.paused) {
-      fallbackAudio.muted = true;
-      void fallbackAudio
+    // Pre-desbloquear también el reproductor de bucle en el mismo gesto táctil
+    const loopEl = getOrCreateAlarmLoopAudio();
+    if (loopEl && loopEl.paused) {
+      loopEl.muted = true;
+      void loopEl
         .play()
         .then(() => {
           if (alarmLoopIntervalId === null) {
-            fallbackAudio.pause();
-            fallbackAudio.currentTime = 0;
+            loopEl.pause();
+            loopEl.currentTime = 0;
           }
-          fallbackAudio.muted = false;
+          loopEl.muted = false;
         })
         .catch(() => {
-          fallbackAudio.muted = false;
+          loopEl.muted = false;
         });
     }
   } catch {
     // Ignorar restricciones de HTMLAudioElement
   }
 
-  // Programar aviso del sistema en el Service Worker (sin pedir permiso por sorpresa)
+  try {
+    const ctx = getOrCreateAudioContext();
+    if (ctx && ctx.state === 'suspended') {
+      void ctx.resume().catch(() => {});
+    }
+  } catch {
+    // Ignorar restricciones de WebAudio
+  }
+
+  updateMediaSessionForTimer(true, routineTitle ? `${routineTitle} · Upgrade` : undefined);
+
+  // Programar además los pulsos de alarma/vibración en el Service Worker (si el usuario dio permiso)
   if (
     notificationsEnabled &&
     isNotificationSupported() &&
@@ -398,6 +415,7 @@ export function armCountdownBackgroundAudio(
     const notificationTitle = copy?.title || 'Temporizador finalizado';
     const tapToStop = copy?.tapToStop || 'Pulsa para parar la alarma';
     const restDone = copy?.restDone || 'Tiempo de descanso completado';
+    const stopLabel = copy?.stopBtn || 'Parar';
     const notificationBody = routineTitle ? `${routineTitle} · ${tapToStop}` : restDone;
 
     postMessageToServiceWorker({
@@ -405,6 +423,7 @@ export function armCountdownBackgroundAudio(
       endMs: Date.now() + Math.max(0, Math.round(durationMs)),
       title: notificationTitle,
       body: notificationBody,
+      stopLabel,
     });
   }
 }
@@ -412,27 +431,18 @@ export function armCountdownBackgroundAudio(
 /** Cancela cualquier alarma pre-programada al pausar, reiniciar o editar el temporizador. */
 export function disarmCountdownBackgroundAudio(): void {
   isCountdownArmed = false;
-  clearWebAudioPreScheduledAlarm();
-
-  if (silentKeepAliveAudio && !silentKeepAliveAudio.paused) {
-    try {
-      silentKeepAliveAudio.pause();
-      silentKeepAliveAudio.currentTime = 0;
-    } catch {
-      // Ignorar
-    }
-  }
-
+  stopCountdownTrackAudio();
   postMessageToServiceWorker({ type: 'CANCEL_TIMER_ALARM' });
 
   if (alarmLoopIntervalId === null) {
+    updateMediaSessionForTimer(false);
     scheduleAudioSuspendWhenIdle(100);
   }
 }
 
 /** Compatibilidad directa para desbloquear el contexto sin pedir permisos invasivos. */
 export function prepareCountdownAudio(): void {
-  configureAudioSessionMode('transient');
+  configureAudioSessionMode('playback');
   try {
     const ctx = getOrCreateAudioContext();
     if (ctx && ctx.state === 'suspended') {
@@ -443,19 +453,24 @@ export function prepareCountdownAudio(): void {
   }
 }
 
-/** Si una alarma sigue activa al desbloquear o volver a la app, reanuda el audio. */
+/** Si una alarma sigue activa al desbloquear o volver a la app, asegura que siga sonando. */
 export function resumeAlarmAudioIfNeeded(): void {
   if (alarmLoopIntervalId === null && !isCountdownArmed) return;
   try {
-    configureAudioSessionMode('transient');
+    configureAudioSessionMode('playback');
     if (sharedAudioContext && sharedAudioContext.state === 'suspended') {
       void sharedAudioContext.resume().catch(() => {});
     }
-    if (alarmLoopIntervalId !== null && alarmFallbackAudio && !alarmFallbackAudio.paused) {
-      // Si el contexto principal ya está sonando en primer plano, evitar duplicar con el canal HTML5
-      if (sharedAudioContext && sharedAudioContext.state === 'running') {
-        alarmFallbackAudio.pause();
-        alarmFallbackAudio.currentTime = 0;
+    if (alarmLoopIntervalId !== null) {
+      const isTrackAlreadyRinging =
+        countdownTrackAudio !== null && !countdownTrackAudio.paused && !countdownTrackAudio.ended;
+      if (!isTrackAlreadyRinging) {
+        const loopEl = getOrCreateAlarmLoopAudio();
+        if (loopEl && loopEl.paused) {
+          loopEl.muted = false;
+          loopEl.volume = 1.0;
+          void loopEl.play().catch(() => {});
+        }
       }
     }
   } catch {
@@ -742,9 +757,14 @@ export function playBugUnlockSound(isPlayUnlock = false): void {
   }
 }
 
-function playAlarmChimeOnce(): void {
+function playAlarmChimeWebAudioOnce(playSound = true): void {
   try {
-    configureAudioSessionMode('transient');
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      navigator.vibrate([320, 120, 320]);
+    }
+    if (!playSound) return;
+
+    configureAudioSessionMode('playback');
     const ctx = getOrCreateAudioContext();
     if (!ctx) return;
 
@@ -755,18 +775,18 @@ function playAlarmChimeOnce(): void {
 
     const now = ctx.currentTime;
     const notesHz = [880, 1046.5, 880, 1318.5];
-    const offsetsSec = [0, 0.18, 0.36, 0.54];
-    const durationsSec = [0.14, 0.14, 0.14, 0.28];
+    const offsetsSec = [0, 0.2, 0.4, 0.6];
+    const durationsSec = [0.16, 0.16, 0.16, 0.34];
 
     notesHz.forEach((freq, idx) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
 
-      osc.type = 'sine';
+      osc.type = 'triangle';
       osc.frequency.setValueAtTime(freq, now + offsetsSec[idx]);
 
       gain.gain.setValueAtTime(0.001, now + offsetsSec[idx]);
-      gain.gain.exponentialRampToValueAtTime(0.32, now + offsetsSec[idx] + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.45, now + offsetsSec[idx] + 0.015);
       gain.gain.exponentialRampToValueAtTime(
         0.0001,
         now + offsetsSec[idx] + durationsSec[idx]
@@ -787,10 +807,6 @@ function playAlarmChimeOnce(): void {
       osc.start(now + offsetsSec[idx]);
       osc.stop(now + offsetsSec[idx] + durationsSec[idx] + 0.02);
     });
-
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-      navigator.vibrate([260, 120, 260]);
-    }
   } catch {
     // Ignorar errores de reproducción
   }
@@ -807,35 +823,36 @@ export function startTimerAlarm(
   }
 
   isCountdownArmed = false;
-  clearWebAudioPreScheduledAlarm();
-  if (silentKeepAliveAudio && !silentKeepAliveAudio.paused) {
-    try {
-      silentKeepAliveAudio.pause();
-      silentKeepAliveAudio.currentTime = 0;
-    } catch {
-      // Ignorar
-    }
-  }
-
   cancelScheduledSuspend();
-  configureAudioSessionMode('transient');
-  playAlarmChimeOnce();
+  configureAudioSessionMode('playback');
 
-  // Si la app está en segundo plano / pantalla apagada o el AudioContext está suspendido, activar también el WAV HTML5
-  const isHidden =
-    typeof document !== 'undefined' && document.visibilityState === 'hidden';
-  if (isHidden || !sharedAudioContext || sharedAudioContext.state !== 'running') {
-    const fallbackAudio = getOrCreateAlarmFallbackAudio();
-    if (fallbackAudio) {
-      fallbackAudio.muted = false;
-      fallbackAudio.currentTime = 0;
-      void fallbackAudio.play().catch(() => {});
+  // IMPORTANTE: Si la pista continua iniciada en el toque del usuario ya está sonando (especialmente fuera de la app
+  // o con pantalla apagada), NO pausarla para no perder el canal de audio activo del sistema operativo.
+  const isPrebakedTrackRinging =
+    countdownTrackAudio !== null && !countdownTrackAudio.paused && !countdownTrackAudio.ended;
+
+  if (!isPrebakedTrackRinging) {
+    stopCountdownTrackAudio();
+    const loopEl = getOrCreateAlarmLoopAudio();
+    if (loopEl) {
+      loopEl.muted = false;
+      loopEl.volume = 1.0;
+      loopEl.currentTime = 0;
+      void loopEl.play().catch(() => {});
     }
+    playAlarmChimeWebAudioOnce(true);
+  } else {
+    playAlarmChimeWebAudioOnce(false);
   }
 
   if (typeof window !== 'undefined') {
     alarmLoopIntervalId = window.setInterval(() => {
-      playAlarmChimeOnce();
+      const stillPlayingHtmlTrack =
+        (countdownTrackAudio !== null &&
+          !countdownTrackAudio.paused &&
+          !countdownTrackAudio.ended) ||
+        (alarmLoopTrackAudio !== null && !alarmLoopTrackAudio.paused);
+      playAlarmChimeWebAudioOnce(!stillPlayingHtmlTrack);
     }, 1500);
   }
 
@@ -847,7 +864,6 @@ export function startTimerAlarm(
       const tapToStop = copy?.tapToStop || 'Pulsa para parar la alarma';
       const restDone = copy?.restDone || 'Tiempo de descanso completado';
       const notificationBody = routineTitle ? `${routineTitle} · ${tapToStop}` : restDone;
-
       const notifIcon = '/pwa-192x192.png';
 
       if ('serviceWorker' in navigator) {
@@ -864,7 +880,7 @@ export function startTimerAlarm(
               renotify: true,
               requireInteraction: true,
               silent: false,
-              vibrate: [320, 120, 320, 120, 460],
+              vibrate: [420, 140, 420, 140, 620],
             };
             return registration.showNotification(notificationTitle, options);
           })
@@ -892,31 +908,23 @@ export function startTimerAlarm(
 
 export function stopTimerAlarm(): void {
   isCountdownArmed = false;
-  clearWebAudioPreScheduledAlarm();
+  stopCountdownTrackAudio();
 
   if (alarmLoopIntervalId !== null && typeof window !== 'undefined') {
     window.clearInterval(alarmLoopIntervalId);
     alarmLoopIntervalId = null;
   }
 
-  if (silentKeepAliveAudio && !silentKeepAliveAudio.paused) {
+  if (alarmLoopTrackAudio && !alarmLoopTrackAudio.paused) {
     try {
-      silentKeepAliveAudio.pause();
-      silentKeepAliveAudio.currentTime = 0;
+      alarmLoopTrackAudio.pause();
+      alarmLoopTrackAudio.currentTime = 0;
     } catch {
       // Ignorar
     }
   }
 
-  if (alarmFallbackAudio && !alarmFallbackAudio.paused) {
-    try {
-      alarmFallbackAudio.pause();
-      alarmFallbackAudio.currentTime = 0;
-    } catch {
-      // Ignorar
-    }
-  }
-
+  updateMediaSessionForTimer(false);
   postMessageToServiceWorker({ type: 'CANCEL_TIMER_ALARM' });
 
   try {

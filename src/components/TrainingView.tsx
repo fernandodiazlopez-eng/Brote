@@ -474,11 +474,24 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
             <span>{t.common_back}</span>
           </button>
 
-          <span className="font-mono text-xs font-bold text-accent tabular-nums">
-            {totalExercises > 0
-              ? `+${earnedSessionXp} / ${effectiveSessionXp} ${t.profile_xp_unit}`
-              : `+${effectiveSessionXp} ${t.profile_xp_unit}`}
-          </span>
+          <div className="flex items-center gap-2.5">
+            {showBug && (
+              <div className="self-end -mb-3 mr-0.5 flex items-end">
+                <BugPerch
+                  gazeMode="down"
+                  globalMood={bugMood}
+                  canPet={canPetBug}
+                  canLaunchHockey={canLaunchBugHockey}
+                />
+              </div>
+            )}
+
+            <span className="font-mono text-xs font-bold text-accent tabular-nums">
+              {totalExercises > 0
+                ? `+${earnedSessionXp} / ${effectiveSessionXp} ${t.profile_xp_unit}`
+                : `+${effectiveSessionXp} ${t.profile_xp_unit}`}
+            </span>
+          </div>
         </div>
 
         {/* Reloj: Cronómetro o Temporizador Digital Nothing × Cyberpunk */}
