@@ -136,13 +136,16 @@ export interface AppPersistentState {
   unlockedTrophies: Record<string, string>; // trophyId -> fecha ISO de obtención
   scheduleChangesByDateIso: Record<string, number>; // contador diario para el logro «El indeciso»
   bugUnlockedAtIso?: string; // fecha ISO al alcanzar Nivel 3 y descubrir a Bug
-  bugPetUnlockedAtIso?: string; // fecha ISO al alcanzar Nivel 5 y desbloquear acariciar a Bug
-  bugHockeyUnlockedAtIso?: string; // fecha ISO al alcanzar Nivel 50 y desbloquear modo Air Hockey
+  bugPetUnlockedAtIso?: string; // fecha ISO al alcanzar Nivel 4 y desbloquear acariciar a Bug
+  bugHockeyUnlockedAtIso?: string; // fecha ISO al alcanzar Nivel 5 y desbloquear jugar / lanzar a Bug
   hideBug?: boolean; // opción en Ajustes para ocultar o mostrar a Bug tras desbloquearlo
   hasCompletedTutorial?: boolean; // indica si el usuario ya completó o saltó el tutorial interactivo inicial
+  hasPromptedDevicePermissions?: boolean; // asegura preguntar permisos opcionales del móvil una única vez
+  timerNotificationsEnabled?: boolean; // avisos del sistema al finalizar temporizador en segundo plano / pantalla apagada
+  motionStepsEnabled?: boolean; // detección de pasos en tiempo real con el acelerómetro del móvil
 }
 
-export type BugUnlockMilestone = 'level3' | 'level5' | 'level50';
+export type BugUnlockMilestone = 'level3' | 'level4' | 'level5';
 
 export interface ActiveWorkoutSessionState {
   activeTab: AppTab;

@@ -3,8 +3,8 @@
  * - Bola de píxeles en el color secundario/acento de la app, apoyada en reposo sin flotar ni emitir chispas continuas.
  * - Mirada curiosa según ubicación (hacia abajo en Rutinas y Estadísticas; hacia el avatar o al frente en Perfil) y parpadeo ocasional.
  * - Nivel 3: Desbloqueo de Bug en la interfaz y carrusel de metro.
- * - Nivel 5: Acariciar con Doble Tap (ojos en arcos felices, parpadeo y destello de chispas del color secundario; sin texto).
- * - Nivel 50: Física Air Hockey al mantener pulsado (Long Press + arrastrar/lanzar, rebote limpio con chispas y sonido 8-bits, frenado progresivo y reaparición inmediata en su sitio).
+ * - Nivel 4: Acariciar con Doble Tap (ojos en arcos felices, parpadeo y destello de chispas del color secundario; sin texto).
+ * - Nivel 5: Jugar con Bug al mantener pulsado (pasa a círculo completo al cogerlo y lanzarlo, rebota limpio con chispas y sonido 8-bits, frena progresivamente y reaparece de inmediato en su sitio).
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -30,24 +30,33 @@ interface PixelSparkParticle {
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-/** Silueta de bola de píxeles 16×14 apoyada sobre su base plana (y = 14). */
-const BUG_BODY_PATH =
+/** Silueta de bola de píxeles 16×14 apoyada sobre su base plana (y = 14) en reposo. */
+const BUG_PERCHED_BODY_PATH =
   'M5 0h6v1H5zM3 1h10v1H3zM2 2h12v1H2zM1 3h14v2H1zM0 5h16v5H0zM1 10h14v2H1zM2 12h12v1H2zM3 13h10v1H3z';
+
+/** Silueta de círculo completo simétrico 16×16 al coger y lanzar a Bug jugando con él. */
+const BUG_FULL_CIRCLE_PATH =
+  'M5 0h6v1H5zM3 1h10v1H3zM2 2h12v1H2zM1 3h14v2H1zM0 5h16v6H0zM1 11h14v2H1zM2 13h12v1H2zM3 14h10v1H3zM5 15h6v1H5z';
 
 interface BugPixelGraphicProps {
   expression: BugEyeExpression;
   gazeX?: -1 | 0 | 1;
   gazeY?: -1 | 0 | 1;
+  isFullCircle?: boolean;
 }
 
 export const BugPixelGraphic: React.FC<BugPixelGraphicProps> = React.memo(({
   expression,
   gazeX = 0,
   gazeY = 0,
+  isFullCircle = false,
 }) => {
   return (
     <g shapeRendering="crispEdges">
-      <path d={BUG_BODY_PATH} fill="var(--app-accent-fill)" />
+      <path
+        d={isFullCircle ? BUG_FULL_CIRCLE_PATH : BUG_PERCHED_BODY_PATH}
+        fill="var(--app-accent-fill)"
+      />
       {/* Brillo especular pixelado sutil en la esquina superior izquierda */}
       <rect x={3} y={2} width={2} height={1} fill="#ffffff" fillOpacity={0.28} />
       <rect x={2} y={3} width={1} height={1} fill="#ffffff" fillOpacity={0.22} />
@@ -340,7 +349,7 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
       if (flyingPuckGroupRef.current) {
         flyingPuckGroupRef.current.setAttribute(
           'transform',
-          `translate(${Math.round(cx - 16)} ${Math.round(cy - 14)}) scale(2)`
+          `translate(${Math.round(cx - 16)} ${Math.round(cy - 16)}) scale(2)`
         );
       }
     };
@@ -353,7 +362,7 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
       const w = window.innerWidth;
       const h = window.innerHeight;
       const clampedX = Math.max(16, Math.min(w - 16, e.clientX));
-      const clampedY = Math.max(14, Math.min(h - 14, e.clientY));
+      const clampedY = Math.max(16, Math.min(h - 16, e.clientY));
 
       puckPosRef.current.x = clampedX;
       puckPosRef.current.y = clampedY;
@@ -435,8 +444,8 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
       const h = window.innerHeight;
       const minX = 16;
       const maxX = Math.max(minX + 1, w - 16);
-      const minY = 14;
-      const maxY = Math.max(minY + 1, h - 14);
+      const minY = 16;
+      const maxY = Math.max(minY + 1, h - 16);
 
       const state = puckPosRef.current;
       state.x += state.vx * dt;
@@ -495,7 +504,7 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
       if (flyingPuckGroupRef.current) {
         flyingPuckGroupRef.current.setAttribute(
           'transform',
-          `translate(${Math.round(state.x - 16)} ${Math.round(state.y - 14)}) scale(2)`
+          `translate(${Math.round(state.x - 16)} ${Math.round(state.y - 16)}) scale(2)`
         );
       }
 
@@ -700,7 +709,7 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
           >
             <g ref={wallSparksGroupRef} />
             <g ref={flyingPuckGroupRef}>
-              <BugPixelGraphic expression={puckExpression} gazeX={0} gazeY={0} />
+              <BugPixelGraphic expression={puckExpression} gazeX={0} gazeY={0} isFullCircle />
             </g>
           </svg>,
           document.body
@@ -811,7 +820,7 @@ interface BugUnlockBannerProps {
 
 /**
  * Cuadro emergente estilo logro Nothing OS × Cyberpunk al descubrir a Bug (Nivel 3),
- * desbloquear acariciarlo (Nivel 5) o desbloquear su lanzamiento Air Hockey (Nivel 50).
+ * desbloquear acariciarlo (Nivel 4) o desbloquear jugar con él / lanzarlo (Nivel 5).
  */
 export const BugUnlockBanner: React.FC<BugUnlockBannerProps> = ({
   milestone,
@@ -819,8 +828,8 @@ export const BugUnlockBanner: React.FC<BugUnlockBannerProps> = ({
 }) => {
   const { language } = useI18n();
   const copy = getBugMilestoneCopy(milestone, language);
-  const isLevel50 = milestone === 'level50';
-  const litSlotsCount = milestone === 'level50' ? 5 : milestone === 'level5' ? 3 : 2;
+  const isPlayMilestone = milestone === 'level5';
+  const litSlotsCount = milestone === 'level5' ? 5 : milestone === 'level4' ? 3 : 2;
 
   return (
     <div
@@ -836,21 +845,26 @@ export const BugUnlockBanner: React.FC<BugUnlockBannerProps> = ({
 
       <div className="relative w-16 h-16 trophy-oled-window border border-accent-fill flex items-center justify-center shrink-0 overflow-hidden animate-trophy-emblem">
         <svg
-          viewBox="-4 -4 24 22"
-          className="w-12 h-11 block"
+          viewBox="-4 -4 24 24"
+          className="w-12 h-12 block"
           shapeRendering="crispEdges"
           aria-hidden="true"
         >
           {/* Chispas decorativas 8-bits en el emblema de desbloqueo */}
           <rect x={-2} y={1} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
           <rect x={16.5} y={0} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
-          {isLevel50 && (
+          {isPlayMilestone && (
             <>
-              <rect x={-2.5} y={10} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
-              <rect x={17} y={11} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
+              <rect x={-2.5} y={11} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
+              <rect x={17} y={12} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
             </>
           )}
-          <BugPixelGraphic expression="happy" gazeX={0} gazeY={0} />
+          <BugPixelGraphic
+            expression="happy"
+            gazeX={0}
+            gazeY={0}
+            isFullCircle={isPlayMilestone}
+          />
         </svg>
       </div>
 

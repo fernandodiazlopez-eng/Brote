@@ -8,7 +8,9 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Activity,
   ArrowLeft,
+  BellRing,
   Check,
   ChevronRight,
   Compass,
@@ -29,10 +31,12 @@ import { usePWAInstall } from '../hooks/usePWAInstall';
 import { useI18n } from '../i18n/I18nContext';
 import { UI_TEXT_SECTIONS, UiTextFieldMeta, UiTextKey } from '../i18n/translations';
 import { AccentPaletteId, ThemeMode, XpFormulas } from '../types';
+import { requestTimerNotificationPermission } from '../utils/audioEffects';
 import {
   normalizeHexColor,
   setCustomDraftSwatchProperty,
 } from '../utils/localStorageState';
+import { requestMotionSensorPermission } from '../utils/mobileHealthSync';
 import {
   areDefaultXpFormulas,
   getDefaultXpFormulas,
@@ -246,6 +250,11 @@ interface ProfileSettingsModalProps {
   hideBug?: boolean;
   onChangeHideBug?: (hide: boolean) => void;
   onOpenTutorial?: () => void;
+  timerNotificationsEnabled?: boolean;
+  onChangeTimerNotifications?: (enabled: boolean) => void;
+  motionStepsEnabled?: boolean;
+  onChangeMotionSteps?: (enabled: boolean) => void;
+  onImportHealthFile?: (fileName: string, rawContent: string) => boolean;
 }
 
 export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
@@ -265,6 +274,11 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   hideBug = false,
   onChangeHideBug,
   onOpenTutorial,
+  timerNotificationsEnabled = false,
+  onChangeTimerNotifications,
+  motionStepsEnabled = false,
+  onChangeMotionSteps,
+  onImportHealthFile,
 }) => {
   const {
     language,
@@ -284,7 +298,9 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const [settingsSection, setSettingsSection] = useState<'main' | 'advanced' | 'texts'>('main');
   const [textSearchQuery, setTextSearchQuery] = useState('');
   const [backupFeedback, setBackupFeedback] = useState<'success' | 'error' | null>(null);
+  const [healthSyncFeedback, setHealthSyncFeedback] = useState<'ok' | 'err' | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const healthFileInputRef = useRef<HTMLInputElement | null>(null);
   const colorPickerInputRef = useRef<HTMLInputElement | null>(null);
 
   const [draftCustomHex, setDraftCustomHex] = useState<string>(() =>
@@ -316,6 +332,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
       setTextSearchQuery('');
       setShowIOSInstallGuide(false);
       setBackupFeedback(null);
+      setHealthSyncFeedback(null);
       setShowCustomHexError(false);
       setDraftCustomHex((customAccentHex || '#c8ff00').toUpperCase());
     }
@@ -797,6 +814,145 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                         <p>{t.settings_ios_install_step1}</p>
                         <p>{t.settings_ios_install_step2}</p>
                       </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Permisos opcionales del móvil y sincronización con Salud / Fit */}
+            {(onChangeTimerNotifications || onChangeMotionSteps || onImportHealthFile) && (
+              <div className="pt-3 border-t border-subtle space-y-3">
+                <p className="font-display text-xs font-semibold uppercase tracking-wider text-fg-secondary">
+                  {t.settings_mobile_heading}
+                </p>
+
+                {onChangeTimerNotifications && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-xs text-fg">
+                      <BellRing className="w-3.5 h-3.5 text-accent shrink-0" />
+                      <span className="font-semibold">{t.settings_timer_notif_label}</span>
+                    </div>
+                    <div
+                      role="group"
+                      aria-label={t.settings_timer_notif_label}
+                      className="seg-group grid grid-cols-2 gap-1"
+                    >
+                      <button
+                        type="button"
+                        aria-pressed={timerNotificationsEnabled}
+                        onClick={() => {
+                          void requestTimerNotificationPermission().then((res) => {
+                            onChangeTimerNotifications(res === 'granted');
+                          });
+                        }}
+                        className={`seg-btn min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
+                          timerNotificationsEnabled ? 'seg-btn-active' : ''
+                        }`}
+                      >
+                        {t.settings_toggle_on}
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={!timerNotificationsEnabled}
+                        onClick={() => onChangeTimerNotifications(false)}
+                        className={`seg-btn min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
+                          !timerNotificationsEnabled ? 'seg-btn-active' : ''
+                        }`}
+                      >
+                        {t.settings_toggle_off}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {onChangeMotionSteps && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-xs text-fg">
+                      <Activity className="w-3.5 h-3.5 text-accent shrink-0" />
+                      <span className="font-semibold">{t.settings_motion_steps_label}</span>
+                    </div>
+                    <div
+                      role="group"
+                      aria-label={t.settings_motion_steps_label}
+                      className="seg-group grid grid-cols-2 gap-1"
+                    >
+                      <button
+                        type="button"
+                        aria-pressed={motionStepsEnabled}
+                        onClick={() => {
+                          void requestMotionSensorPermission().then((res) => {
+                            onChangeMotionSteps(res === 'granted');
+                          });
+                        }}
+                        className={`seg-btn min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
+                          motionStepsEnabled ? 'seg-btn-active' : ''
+                        }`}
+                      >
+                        {t.settings_toggle_on}
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={!motionStepsEnabled}
+                        onClick={() => onChangeMotionSteps(false)}
+                        className={`seg-btn min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
+                          !motionStepsEnabled ? 'seg-btn-active' : ''
+                        }`}
+                      >
+                        {t.settings_toggle_off}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {onImportHealthFile && (
+                  <div className="space-y-1.5 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHealthSyncFeedback(null);
+                        healthFileInputRef.current?.click();
+                      }}
+                      className="btn-secondary w-full min-h-[42px] px-3.5 py-2 text-xs flex items-center justify-center gap-2 whitespace-nowrap"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-accent shrink-0" />
+                      <span>{t.settings_health_sync_btn}</span>
+                    </button>
+                    <input
+                      ref={healthFileInputRef}
+                      type="file"
+                      accept=".xml,.csv,.json,.gpx,.tcx,text/xml,text/csv,application/json"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = '';
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          const raw = typeof reader.result === 'string' ? reader.result : '';
+                          const ok = onImportHealthFile(file.name, raw);
+                          setHealthSyncFeedback(ok ? 'ok' : 'err');
+                        };
+                        reader.onerror = () => {
+                          setHealthSyncFeedback('err');
+                        };
+                        reader.readAsText(file);
+                      }}
+                      className="hidden"
+                    />
+                    <p className="text-[11px] text-fg-muted leading-snug">
+                      {t.settings_health_sync_hint}
+                    </p>
+                    {healthSyncFeedback && (
+                      <p
+                        role="status"
+                        className={`text-xs font-medium ${
+                          healthSyncFeedback === 'ok' ? 'text-accent' : 'text-red-400'
+                        }`}
+                      >
+                        {healthSyncFeedback === 'ok'
+                          ? t.settings_health_sync_ok
+                          : t.settings_health_sync_err}
+                      </p>
                     )}
                   </div>
                 )}

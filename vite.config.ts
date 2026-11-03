@@ -16,6 +16,7 @@ export default defineConfig(() => {
           'apple-touch-icon.png',
           'manifest-dark.webmanifest',
           'manifest-light.webmanifest',
+          'sw-timer.js',
           'fonts/upgrade-digital-regular.ttf',
           'fonts/upgrade-digital-bold.ttf',
         ],
@@ -53,6 +54,7 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
+          importScripts: ['/sw-timer.js'],
           skipWaiting: true,
           clientsClaim: true,
           cleanupOutdatedCaches: true,

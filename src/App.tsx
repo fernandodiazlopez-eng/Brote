@@ -26,6 +26,7 @@ import {
   BugSubwayMarquee,
   BugUnlockBanner,
 } from './components/BugCompanion';
+import { DevicePermissionsModal } from './components/DevicePermissionsModal';
 import { FirstLaunchLanguageModal } from './components/FirstLaunchLanguageModal';
 import { OnboardingTutorial } from './components/OnboardingTutorial';
 import { ProfileView } from './components/ProfileView';
@@ -34,6 +35,7 @@ import { TrainingView } from './components/TrainingView';
 import { TrophyUnlockBanner } from './components/TrophyUnlockBanner';
 import { BugDialogueCategory, pickBugPhrase } from './data/bugCompanionData';
 import { findNewlyUnlockedTrophies } from './data/trophiesCatalog';
+import { useMobileStepSensor } from './hooks/useMobileStepSensor';
 import { I18nContext, I18nContextValue } from './i18n/I18nContext';
 import {
   DEFAULT_UI_TEXTS,
@@ -59,14 +61,17 @@ import {
   XpFormulas,
 } from './types';
 import {
+  armCountdownBackgroundAudio,
+  disarmCountdownBackgroundAudio,
   playBugUnlockSound,
   playTrophyUnlockSound,
-  prepareCountdownAudio,
   resumeAlarmAudioIfNeeded,
   startTimerAlarm,
   stopTimerAlarm,
 } from './utils/audioEffects';
 import { addDaysToIso, getDailyRecord, getTodayDateIso } from './utils/calendarDates';
+import { createBackgroundClockTicker } from './utils/countdownWorker';
+import { parseMobileHealthExport } from './utils/mobileHealthSync';
 import {
   APP_STATE_STORAGE_KEY,
   applyThemeToDocument,
@@ -123,12 +128,20 @@ export default function App() {
   const isTutorialOpen =
     manualTutorialOpen ||
     (appState.hasSelectedInitialLanguage && !appState.hasCompletedTutorial);
+  const isPermissionsModalOpen =
+    appState.hasSelectedInitialLanguage &&
+    Boolean(appState.hasCompletedTutorial) &&
+    !manualTutorialOpen &&
+    !appState.hasPromptedDevicePermissions;
 
   const [trophyQueue, setTrophyQueue] = useState<Trophy[]>([]);
   const [bugMilestoneQueue, setBugMilestoneQueue] = useState<BugUnlockMilestone[]>([]);
-  const currentTrophyBanner = !isTutorialOpen ? trophyQueue[0] || null : null;
+  const currentTrophyBanner =
+    !isTutorialOpen && !isPermissionsModalOpen ? trophyQueue[0] || null : null;
   const currentBugBanner =
-    !isTutorialOpen && !currentTrophyBanner ? bugMilestoneQueue[0] || null : null;
+    !isTutorialOpen && !isPermissionsModalOpen && !currentTrophyBanner
+      ? bugMilestoneQueue[0] || null
+      : null;
 
   // Estado reactivo de Bug (mascota 8-bits) y su carrusel luminoso de metro
   const [bugMood, setBugMood] = useState<BugGlobalMood>('none');
@@ -198,9 +211,9 @@ export default function App() {
   const isBugUnlocked =
     Boolean(appState.bugUnlockedAtIso) || currentLevel >= 3 || peakLevel >= 3;
   const isBugPetUnlocked =
-    Boolean(appState.bugPetUnlockedAtIso) || currentLevel >= 5 || peakLevel >= 5;
+    Boolean(appState.bugPetUnlockedAtIso) || currentLevel >= 4 || peakLevel >= 4;
   const isBugHockeyUnlocked =
-    Boolean(appState.bugHockeyUnlockedAtIso) || currentLevel >= 50 || peakLevel >= 50;
+    Boolean(appState.bugHockeyUnlockedAtIso) || currentLevel >= 5 || peakLevel >= 5;
   const hideBug = Boolean(appState.hideBug);
   const showBug = isBugUnlocked && !hideBug;
 
@@ -350,24 +363,24 @@ export default function App() {
     setTrophyQueue((prev) => prev.slice(1));
   }, []);
 
-  // --- 4B. Desbloqueos de Bug (Nivel 3: Mascota · Nivel 5: Acariciar · Nivel 50: Física Air Hockey) y saludo al abrir ---
+  // --- 4B. Desbloqueos de Bug (Nivel 3: Mascota · Nivel 4: Acariciar · Nivel 5: Jugar / Lanzar) y saludo al abrir ---
   useEffect(() => {
     if (!appState.hasSelectedInitialLanguage) return;
 
     const reachedLvl3 = currentLevel >= 3 || peakLevel >= 3;
+    const reachedLvl4 = currentLevel >= 4 || peakLevel >= 4;
     const reachedLvl5 = currentLevel >= 5 || peakLevel >= 5;
-    const reachedLvl50 = currentLevel >= 50 || peakLevel >= 50;
     const needLvl3 = reachedLvl3 && !appState.bugUnlockedAtIso;
-    const needLvl5 = reachedLvl5 && !appState.bugPetUnlockedAtIso;
-    const needLvl50 = reachedLvl50 && !appState.bugHockeyUnlockedAtIso;
+    const needLvl4 = reachedLvl4 && !appState.bugPetUnlockedAtIso;
+    const needLvl5 = reachedLvl5 && !appState.bugHockeyUnlockedAtIso;
 
-    if (!needLvl3 && !needLvl5 && !needLvl50) return;
+    if (!needLvl3 && !needLvl4 && !needLvl5) return;
 
     setAppState((prev) => ({
       ...prev,
       ...(needLvl3 && !prev.bugUnlockedAtIso ? { bugUnlockedAtIso: todayIso } : {}),
-      ...(needLvl5 && !prev.bugPetUnlockedAtIso ? { bugPetUnlockedAtIso: todayIso } : {}),
-      ...(needLvl50 && !prev.bugHockeyUnlockedAtIso
+      ...(needLvl4 && !prev.bugPetUnlockedAtIso ? { bugPetUnlockedAtIso: todayIso } : {}),
+      ...(needLvl5 && !prev.bugHockeyUnlockedAtIso
         ? { bugHockeyUnlockedAtIso: todayIso }
         : {}),
     }));
@@ -375,8 +388,8 @@ export default function App() {
     setBugMilestoneQueue((prev) => {
       const next = [...prev];
       if (needLvl3 && !next.includes('level3')) next.push('level3');
+      if (needLvl4 && !next.includes('level4')) next.push('level4');
       if (needLvl5 && !next.includes('level5')) next.push('level5');
-      if (needLvl50 && !next.includes('level50')) next.push('level50');
       return next;
     });
   }, [
@@ -391,7 +404,7 @@ export default function App() {
 
   useEffect(() => {
     if (!currentBugBanner) return;
-    playBugUnlockSound(currentBugBanner === 'level50');
+    playBugUnlockSound(currentBugBanner === 'level5');
 
     const timerId = window.setTimeout(() => {
       setBugMilestoneQueue((prev) => prev.slice(1));
@@ -540,9 +553,27 @@ export default function App() {
     if (didTriggerHydratedAlarmRef.current) return;
     didTriggerHydratedAlarmRef.current = true;
     if (initialSession.shouldRingAlarmOnMount) {
-      startTimerAlarm(activeSessionRoutine?.title, alarmCopyRef.current);
+      startTimerAlarm(
+        activeSessionRoutine?.title,
+        alarmCopyRef.current,
+        Boolean(latestAppStateRef.current.timerNotificationsEnabled)
+      );
+    } else if (initialSession.countdownEndMs !== null) {
+      const remMs = initialSession.countdownEndMs - Date.now();
+      if (remMs > 0) {
+        armCountdownBackgroundAudio(
+          remMs,
+          activeSessionRoutine?.title,
+          alarmCopyRef.current,
+          Boolean(latestAppStateRef.current.timerNotificationsEnabled)
+        );
+      }
     }
-  }, [activeSessionRoutine?.title, initialSession.shouldRingAlarmOnMount]);
+  }, [
+    activeSessionRoutine?.title,
+    initialSession.shouldRingAlarmOnMount,
+    initialSession.countdownEndMs,
+  ]);
 
   // --- 6. Guardado automático + guardado inmediato al salir o bloquear pantalla ---
   const sessionSnapshot: ActiveWorkoutSessionState = {
@@ -689,7 +720,11 @@ export default function App() {
         setCountdownEndMs(null);
         setCountdownRemMs(0);
         setIsAlarmRinging(true);
-        startTimerAlarm(activeSessionRoutine?.title, alarmCopyRef.current);
+        startTimerAlarm(
+          activeSessionRoutine?.title,
+          alarmCopyRef.current,
+          Boolean(latestAppStateRef.current.timerNotificationsEnabled)
+        );
         return;
       }
 
@@ -729,22 +764,21 @@ export default function App() {
 
     syncRunningClocks();
 
-    let intervalId: number | null = null;
-    let exactFinishTimeoutId: number | null = null;
+    // Web Worker dedicado que no sufre congelación al salir a otra app con la sesión abierta
+    const workerTicker = createBackgroundClockTicker(syncRunningClocks);
+    workerTicker.start(250);
 
-    if (isDocumentVisible) {
-      intervalId = window.setInterval(syncRunningClocks, 250);
-    } else if (countdownEndMs !== null) {
-      const msUntilEnd = Math.max(50, countdownEndMs - Date.now());
+    let exactFinishTimeoutId: number | null = null;
+    if (countdownEndMs !== null) {
+      const msUntilEnd = Math.max(40, countdownEndMs - Date.now());
       exactFinishTimeoutId = window.setTimeout(syncRunningClocks, msUntilEnd);
-      intervalId = window.setInterval(syncRunningClocks, 1000);
     }
 
     window.addEventListener('pageshow', syncRunningClocks);
     window.addEventListener('focus', syncRunningClocks);
 
     return () => {
-      if (intervalId !== null) window.clearInterval(intervalId);
+      workerTicker.dispose();
       if (exactFinishTimeoutId !== null) window.clearTimeout(exactFinishTimeoutId);
       window.removeEventListener('pageshow', syncRunningClocks);
       window.removeEventListener('focus', syncRunningClocks);
@@ -802,27 +836,52 @@ export default function App() {
     setCountdownRemMs(countdownTargetSec * 1000);
   }, [countdownTargetSec]);
 
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+    const handleSwMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'STOP_TIMER_ALARM_FROM_SW') {
+        handleStopAlarm();
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+    };
+  }, [handleStopAlarm]);
+
   const handleSnoozeOneMinute = useCallback(() => {
     stopTimerAlarm();
-    prepareCountdownAudio();
     setIsAlarmRinging(false);
     const now = Date.now();
+    const snoozeMs = 60 * 1000;
+    armCountdownBackgroundAudio(
+      snoozeMs,
+      activeSessionRoutine?.title,
+      alarmCopyRef.current,
+      Boolean(latestAppStateRef.current.timerNotificationsEnabled)
+    );
     setNowTick(now);
     setClockMode(WorkoutClockMode.COUNTDOWN);
-    setCountdownRemMs(60 * 1000);
-    setCountdownEndMs(now + 60 * 1000);
-  }, []);
+    setCountdownRemMs(snoozeMs);
+    setCountdownEndMs(now + snoozeMs);
+  }, [activeSessionRoutine?.title]);
 
   const handleRepeatCountdown = useCallback(() => {
     stopTimerAlarm();
-    prepareCountdownAudio();
     setIsAlarmRinging(false);
     const now = Date.now();
+    const targetMs = countdownTargetSec * 1000;
+    armCountdownBackgroundAudio(
+      targetMs,
+      activeSessionRoutine?.title,
+      alarmCopyRef.current,
+      Boolean(latestAppStateRef.current.timerNotificationsEnabled)
+    );
     setNowTick(now);
     setClockMode(WorkoutClockMode.COUNTDOWN);
-    setCountdownRemMs(countdownTargetSec * 1000);
-    setCountdownEndMs(now + countdownTargetSec * 1000);
-  }, [countdownTargetSec]);
+    setCountdownRemMs(targetMs);
+    setCountdownEndMs(now + targetMs);
+  }, [countdownTargetSec, activeSessionRoutine?.title]);
 
   const handleToggleClockPlayPause = useCallback(() => {
     const now = Date.now();
@@ -845,11 +904,17 @@ export default function App() {
       setIsAlarmRinging(false);
     }
     if (countdownEndMs !== null) {
+      disarmCountdownBackgroundAudio();
       setCountdownRemMs(Math.max(0, countdownEndMs - now));
       setCountdownEndMs(null);
     } else {
-      prepareCountdownAudio();
       const baseMs = countdownRemMs > 0 ? countdownRemMs : countdownTargetSec * 1000;
+      armCountdownBackgroundAudio(
+        baseMs,
+        activeSessionRoutine?.title,
+        alarmCopyRef.current,
+        Boolean(latestAppStateRef.current.timerNotificationsEnabled)
+      );
       setCountdownRemMs(baseMs);
       setCountdownEndMs(now + baseMs);
     }
@@ -860,6 +925,7 @@ export default function App() {
     countdownRemMs,
     countdownTargetSec,
     isAlarmRinging,
+    activeSessionRoutine?.title,
   ]);
 
   const handleResetClock = useCallback(() => {
@@ -1718,6 +1784,146 @@ export default function App() {
     [isBugUnlocked, triggerBugQuickReaction]
   );
 
+  const handleSensorStepsDetected = useCallback((deltaSteps: number) => {
+    if (deltaSteps <= 0) return;
+    const realToday = getTodayDateIso();
+    setAppState((prev) => {
+      const existing = getDailyRecord(prev.daysByIso, realToday);
+      const nextSteps = Math.min(200_000, existing.steps + deltaSteps);
+      if (nextSteps === existing.steps) return prev;
+      return {
+        ...prev,
+        daysByIso: {
+          ...prev.daysByIso,
+          [realToday]: {
+            ...existing,
+            steps: nextSteps,
+          },
+        },
+      };
+    });
+  }, []);
+
+  const mobileStepSensor = useMobileStepSensor({
+    enabled: Boolean(appState.motionStepsEnabled),
+    onStepsDetected: handleSensorStepsDetected,
+  });
+
+  const handleCompleteDevicePermissions = useCallback(
+    (result: { timerNotificationsEnabled: boolean; motionStepsEnabled: boolean }) => {
+      setAppState((prev) => {
+        const updatedState: AppPersistentState = {
+          ...prev,
+          hasPromptedDevicePermissions: true,
+          timerNotificationsEnabled: result.timerNotificationsEnabled,
+          motionStepsEnabled: result.motionStepsEnabled,
+        };
+        try {
+          window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(updatedState));
+        } catch {
+          // Ignorar límites de almacenamiento
+        }
+        return updatedState;
+      });
+    },
+    []
+  );
+
+  const handleChangeTimerNotifications = useCallback((enabled: boolean) => {
+    setAppState((prev) => ({
+      ...prev,
+      hasPromptedDevicePermissions: true,
+      timerNotificationsEnabled: enabled,
+    }));
+  }, []);
+
+  const handleChangeMotionSteps = useCallback((enabled: boolean) => {
+    setAppState((prev) => ({
+      ...prev,
+      hasPromptedDevicePermissions: true,
+      motionStepsEnabled: enabled,
+    }));
+  }, []);
+
+  const handleImportHealthFile = useCallback(
+    (fileName: string, rawContent: string): boolean => {
+      const snap = latestAppStateRef.current;
+      const parsed = parseMobileHealthExport(fileName, rawContent, snap.xpFormulas);
+      if (!parsed) return false;
+
+      const realToday = getTodayDateIso();
+      setAppState((prev) => {
+        const nextDaysByIso: Record<string, DailyActivityRecord> = { ...prev.daysByIso };
+        let earliestIso = prev.firstOpenDateIso;
+
+        for (const [iso, patch] of Object.entries(parsed.daysPatch)) {
+          if (iso < earliestIso) earliestIso = iso;
+          const existing = getDailyRecord(nextDaysByIso, iso);
+          const mergedSteps =
+            patch.steps !== undefined ? Math.max(existing.steps, patch.steps) : existing.steps;
+
+          const existingSignatures = new Set(
+            existing.completedWorkouts.map(
+              (w) => `${w.title}|${w.category}|${w.durationMin}|${w.timeLabel}`
+            )
+          );
+          const newUniqueWorkouts = patch.workouts.filter(
+            (w) => !existingSignatures.has(`${w.title}|${w.category}|${w.durationMin}|${w.timeLabel}`)
+          );
+          const combinedWorkouts =
+            newUniqueWorkouts.length > 0
+              ? recalculateDailyWorkoutsMarginalXp(
+                  [...newUniqueWorkouts, ...existing.completedWorkouts],
+                  prev.xpFormulas
+                )
+              : existing.completedWorkouts;
+
+          nextDaysByIso[iso] = {
+            ...existing,
+            steps: mergedSteps,
+            completedWorkouts: combinedWorkouts,
+          };
+        }
+
+        // Si se importaron fechas pasadas, recalcular el progreso consolidado desde el inicio hasta hoy
+        const hasPastDaysImported = Object.keys(parsed.daysPatch).some((iso) => iso < realToday);
+        if (!hasPastDaysImported) {
+          return {
+            ...prev,
+            daysByIso: nextDaysByIso,
+          };
+        }
+
+        const baseForReplay: AppPersistentState = {
+          ...prev,
+          firstOpenDateIso: earliestIso,
+          lastProcessedDateIso: earliestIso,
+          settledTotalXp: 0,
+          settledPeakLevel: 0,
+          settledPeakContinuousLevel: 0,
+          settledInactiveDays: 0,
+          daysByIso: nextDaysByIso,
+        };
+        const replayed = reconcileDaysUntilToday(baseForReplay, realToday);
+        return {
+          ...replayed,
+          settledTotalXp: Math.max(prev.settledTotalXp, replayed.settledTotalXp),
+          settledPeakLevel: Math.max(prev.settledPeakLevel, replayed.settledPeakLevel),
+          settledPeakContinuousLevel: Math.max(
+            prev.settledPeakContinuousLevel,
+            replayed.settledPeakContinuousLevel
+          ),
+        };
+      });
+
+      if (showBug) {
+        triggerBugQuickReaction(snap.language);
+      }
+      return true;
+    },
+    [showBug, triggerBugQuickReaction]
+  );
+
   const showFloatingSessionBar =
     (isAnyClockRunning || (activeSessionRoutine !== null && hasSessionProgress)) &&
     !isWorkoutScreenVisible;
@@ -1739,6 +1945,7 @@ export default function App() {
     setNowTick(now);
     if (isAnyClockRunning) {
       if (isCountdownRunning && countdownEndMs !== null) {
+        disarmCountdownBackgroundAudio();
         setCountdownRemMs(Math.max(0, countdownEndMs - now));
         setCountdownEndMs(null);
       }
@@ -1749,8 +1956,13 @@ export default function App() {
         setStopwatchStartMs(null);
       }
     } else if (clockMode === WorkoutClockMode.COUNTDOWN) {
-      prepareCountdownAudio();
       const baseMs = countdownRemMs > 0 ? countdownRemMs : countdownTargetSec * 1000;
+      armCountdownBackgroundAudio(
+        baseMs,
+        activeSessionRoutine?.title,
+        alarmCopyRef.current,
+        Boolean(latestAppStateRef.current.timerNotificationsEnabled)
+      );
       setCountdownRemMs(baseMs);
       setCountdownEndMs(now + baseMs);
     } else {
@@ -1765,6 +1977,7 @@ export default function App() {
     clockMode,
     countdownRemMs,
     countdownTargetSec,
+    activeSessionRoutine?.title,
   ]);
 
   return (
@@ -1782,6 +1995,12 @@ export default function App() {
           activeTab={activeTab}
           onSelectTab={handleSelectTab}
           onClose={handleCloseTutorial}
+        />
+
+        {/* Solicitud única e informativa de permisos opcionales del móvil */}
+        <DevicePermissionsModal
+          isOpen={isPermissionsModalOpen}
+          onComplete={handleCompleteDevicePermissions}
         />
 
         {/* Notificación superior de Trofeo Desbloqueado */}
@@ -1953,6 +2172,12 @@ export default function App() {
               canPetBug={isBugPetUnlocked}
               canLaunchBugHockey={isBugHockeyUnlocked}
               onOpenTutorial={handleOpenTutorial}
+              isMotionSensorReceiving={mobileStepSensor.isReceivingMotion}
+              timerNotificationsEnabled={Boolean(appState.timerNotificationsEnabled)}
+              onChangeTimerNotifications={handleChangeTimerNotifications}
+              motionStepsEnabled={Boolean(appState.motionStepsEnabled)}
+              onChangeMotionSteps={handleChangeMotionSteps}
+              onImportHealthFile={handleImportHealthFile}
             />
           )}
 

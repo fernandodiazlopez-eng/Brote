@@ -77,6 +77,12 @@ interface ProfileViewProps {
   canPetBug?: boolean;
   canLaunchBugHockey?: boolean;
   onOpenTutorial?: () => void;
+  isMotionSensorReceiving?: boolean;
+  timerNotificationsEnabled?: boolean;
+  onChangeTimerNotifications?: (enabled: boolean) => void;
+  motionStepsEnabled?: boolean;
+  onChangeMotionSteps?: (enabled: boolean) => void;
+  onImportHealthFile?: (fileName: string, rawContent: string) => boolean;
 }
 
 interface RoutineTransferDragState {
@@ -137,6 +143,12 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
   canPetBug = false,
   canLaunchBugHockey = false,
   onOpenTutorial,
+  isMotionSensorReceiving = false,
+  timerNotificationsEnabled = false,
+  onChangeTimerNotifications,
+  motionStepsEnabled = false,
+  onChangeMotionSteps,
+  onImportHealthFile,
 }) => {
   const { language, locale, t, formatCategory } = useI18n();
   const formatKmValue = (km: number) => {
@@ -1115,6 +1127,8 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
           xpFormulas={xpFormulas}
           onUpdateDaySteps={onUpdateDaySteps}
           onUpdateStepGoal={onUpdateStepGoal}
+          isMotionSensorReceiving={isMotionSensorReceiving}
+          onImportHealthFile={onImportHealthFile}
         />
       </div>
 
@@ -1142,6 +1156,11 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
         hideBug={hideBug}
         onChangeHideBug={onChangeHideBug}
         onOpenTutorial={onOpenTutorial}
+        timerNotificationsEnabled={timerNotificationsEnabled}
+        onChangeTimerNotifications={onChangeTimerNotifications}
+        motionStepsEnabled={motionStepsEnabled}
+        onChangeMotionSteps={onChangeMotionSteps}
+        onImportHealthFile={onImportHealthFile}
       />
 
       {/* Modal para asignar o quitar rutinas del día seleccionado */}

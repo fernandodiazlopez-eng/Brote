@@ -308,6 +308,9 @@ export function createInitialAppState(todayIso: string): AppPersistentState {
     language: 'es',
     hasSelectedInitialLanguage: false,
     hasCompletedTutorial: false,
+    hasPromptedDevicePermissions: false,
+    timerNotificationsEnabled: false,
+    motionStepsEnabled: false,
     customTexts: {},
     xpFormulas: { ...DEFAULT_XP_FORMULAS },
     routines: [],
@@ -656,6 +659,11 @@ export function hydrateSanitizedAppState(
     : undefined;
   const resolvedBugPetUnlockedAtIso = isIsoDateString(parsed.bugPetUnlockedAtIso)
     ? parsed.bugPetUnlockedAtIso
+    : resolvedBugUnlockedAtIso && hydratedPeakLevel >= 4
+    ? resolvedBugUnlockedAtIso
+    : undefined;
+  const resolvedBugHockeyUnlockedAtIso = isIsoDateString(parsed.bugHockeyUnlockedAtIso)
+    ? parsed.bugHockeyUnlockedAtIso
     : resolvedBugUnlockedAtIso && hydratedPeakLevel >= 5
     ? resolvedBugUnlockedAtIso
     : undefined;
@@ -699,6 +707,12 @@ export function hydrateSanitizedAppState(
       typeof parsed.hasCompletedTutorial === 'boolean'
         ? parsed.hasCompletedTutorial
         : hasExistingActivity,
+    hasPromptedDevicePermissions:
+      typeof parsed.hasPromptedDevicePermissions === 'boolean'
+        ? parsed.hasPromptedDevicePermissions
+        : false,
+    timerNotificationsEnabled: parsed.timerNotificationsEnabled === true,
+    motionStepsEnabled: parsed.motionStepsEnabled === true,
     customTexts: sanitizeCustomTexts(parsed.customTexts),
     xpFormulas: formulas,
     routines: sanitizedRoutines,
@@ -709,8 +723,8 @@ export function hydrateSanitizedAppState(
     scheduleChangesByDateIso: sanitizeScheduleChanges(parsed.scheduleChangesByDateIso, todayIso),
     ...(resolvedBugUnlockedAtIso ? { bugUnlockedAtIso: resolvedBugUnlockedAtIso } : {}),
     ...(resolvedBugPetUnlockedAtIso ? { bugPetUnlockedAtIso: resolvedBugPetUnlockedAtIso } : {}),
-    ...(isIsoDateString(parsed.bugHockeyUnlockedAtIso)
-      ? { bugHockeyUnlockedAtIso: parsed.bugHockeyUnlockedAtIso }
+    ...(resolvedBugHockeyUnlockedAtIso
+      ? { bugHockeyUnlockedAtIso: resolvedBugHockeyUnlockedAtIso }
       : {}),
     ...(typeof parsed.hideBug === 'boolean' ? { hideBug: parsed.hideBug } : {}),
   };
@@ -758,6 +772,7 @@ export function parseAppStateBackup(
         ...candidateState,
         hasSelectedInitialLanguage: true,
         hasCompletedTutorial: candidateState.hasCompletedTutorial ?? true,
+        hasPromptedDevicePermissions: candidateState.hasPromptedDevicePermissions ?? true,
       },
       todayIso
     );

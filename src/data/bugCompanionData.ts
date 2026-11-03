@@ -81,10 +81,10 @@ export function getBugMilestoneCopy(
     };
   }
 
-  if (milestone === 'level5') {
+  if (milestone === 'level4') {
     if (language === 'en') {
       return {
-        kickerLeft: 'LEVEL 5',
+        kickerLeft: 'LEVEL 4',
         kickerRight: 'MASCOT BOND',
         title: 'YOU CAN NOW PET BUG!',
         description:
@@ -92,7 +92,7 @@ export function getBugMilestoneCopy(
       };
     }
     return {
-      kickerLeft: 'NIVEL 5',
+      kickerLeft: 'NIVEL 4',
       kickerRight: 'AFECTO DESBLOQUEADO',
       title: '¡YA PUEDES ACARICIAR A BUG!',
       description:
@@ -102,19 +102,19 @@ export function getBugMilestoneCopy(
 
   if (language === 'en') {
     return {
-      kickerLeft: 'LEVEL 50',
+      kickerLeft: 'LEVEL 5',
       kickerRight: 'MASCOT UPGRADE',
-      title: 'AIR HOCKEY PHYSICS UNLOCKED',
+      title: 'YOU CAN NOW PLAY WITH BUG!',
       description:
-        'Long-press Bug to drag and launch it bouncing cleanly off the walls across the screen.',
+        'Long-press Bug to grab and launch it bouncing cleanly off the walls across the screen.',
     };
   }
 
   return {
-    kickerLeft: 'NIVEL 50',
+    kickerLeft: 'NIVEL 5',
     kickerRight: 'MEJORA DE BUG',
-    title: 'LANZAMIENTO AIR HOCKEY',
+    title: '¡YA PUEDES JUGAR CON BUG!',
     description:
-      'Mantén pulsado a Bug para arrastrarlo y lanzarlo rebotando por las paredes de la pantalla.',
+      'Mantén pulsado a Bug para cogerlo y lanzarlo rebotando por las paredes de la pantalla.',
   };
 }
