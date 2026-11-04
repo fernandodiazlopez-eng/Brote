@@ -114,6 +114,7 @@ interface ProfileViewProps {
   motionStepsEnabled?: boolean;
   onChangeMotionSteps?: (enabled: boolean) => void;
   isMusicPlaying?: boolean;
+  onTriggerSecretBugMessage?: () => void;
 }
 
 interface RoutineTransferDragState {
@@ -204,6 +205,7 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
   motionStepsEnabled = false,
   onChangeMotionSteps,
   isMusicPlaying = false,
+  onTriggerSecretBugMessage,
 }) => {
   const { language, locale, t, formatCategory } = useI18n();
   const formatKmValue = (km: number) => {
@@ -234,6 +236,36 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [selectedCompletedLogId, setSelectedCompletedLogId] = useState<string | null>(null);
+  const infoSecretCycleCountRef = useRef<number>(0);
+  const infoOpenedCleanlyRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const handlePointerDown = (e: Event) => {
+      const target = e.target;
+      if (!(target instanceof Element)) {
+        infoSecretCycleCountRef.current = 0;
+        infoOpenedCleanlyRef.current = false;
+        return;
+      }
+      if (target.closest('[data-secret-info-reset="true"]')) {
+        infoSecretCycleCountRef.current = 0;
+        infoOpenedCleanlyRef.current = false;
+        return;
+      }
+      if (
+        !target.closest('[data-secret-info-open="true"]') &&
+        !target.closest('[data-secret-info-modal="true"]')
+      ) {
+        infoSecretCycleCountRef.current = 0;
+        infoOpenedCleanlyRef.current = false;
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true);
+    };
+  }, []);
 
   // En sábado (5) y domingo (6) se habilita planificar también la próxima semana
   const todayWeekdayIdx = useMemo(() => getWeekdayIndexMondayFirst(todayIso), [todayIso]);
@@ -533,9 +565,13 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
       <header className="flex items-center justify-between -mb-2">
         <button
           type="button"
-          onClick={() => setIsPointsInfoOpen(true)}
+          data-secret-info-open="true"
+          onClick={() => {
+            infoOpenedCleanlyRef.current = true;
+            setIsPointsInfoOpen(true);
+          }}
           aria-label={t.info_title}
-          className="min-h-[40px] min-w-[40px] -ml-2 flex items-center justify-center text-fg-secondary active:scale-95 transition cursor-pointer focus-visible:outline-none focus-visible:text-accent"
+          className="min-h-[40px] min-w-[40px] -ml-2 flex items-center justify-center text-fg-secondary active:scale-95 transition cursor-pointer touch-manipulation focus-visible:outline-none focus-visible:text-accent"
         >
           <Info className="w-[18px] h-[18px]" />
         </button>
@@ -1190,7 +1226,17 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
       {/* Modales de Información y Ajustes */}
       <PointsSystemInfoModal
         isOpen={isPointsInfoOpen}
-        onClose={() => setIsPointsInfoOpen(false)}
+        onClose={() => {
+          setIsPointsInfoOpen(false);
+          if (infoOpenedCleanlyRef.current) {
+            infoOpenedCleanlyRef.current = false;
+            infoSecretCycleCountRef.current += 1;
+            if (infoSecretCycleCountRef.current >= 14) {
+              infoSecretCycleCountRef.current = 0;
+              onTriggerSecretBugMessage?.();
+            }
+          }
+        }}
         onOpenTutorial={onOpenTutorial}
       />
 

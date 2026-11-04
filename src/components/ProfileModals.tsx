@@ -115,6 +115,7 @@ export const PointsSystemInfoModal: React.FC<PointsSystemInfoModalProps> = ({
 
   return (
     <div
+      data-secret-info-modal="true"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
       role="dialog"
       aria-modal="true"
@@ -137,7 +138,7 @@ export const PointsSystemInfoModal: React.FC<PointsSystemInfoModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label={t.common_close}
-            className="btn-quiet min-h-[38px] min-w-[38px] flex items-center justify-center"
+            className="btn-quiet min-h-[38px] min-w-[38px] flex items-center justify-center touch-manipulation"
           >
             <X className="w-4 h-4" />
           </button>
@@ -153,6 +154,7 @@ export const PointsSystemInfoModal: React.FC<PointsSystemInfoModalProps> = ({
           <div className="mt-5 pt-4 border-t border-subtle">
             <button
               type="button"
+              data-secret-info-reset="true"
               onClick={() => {
                 onClose();
                 onOpenTutorial();
