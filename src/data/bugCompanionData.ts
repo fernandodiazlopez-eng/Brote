@@ -635,18 +635,18 @@ export function getBugMilestoneCopy(
     if (language === 'en') {
       return {
         kickerLeft: 'LEVEL 90',
-        kickerRight: 'LEGENDARY KI',
-        title: 'SUPER SAIYAN BUG UNLOCKED!',
+        kickerRight: 'ULTIMATE POWER',
+        title: 'SUPER BUG UNLOCKED!',
         description:
-          'Double-tap Bug to pet it and unleash its blazing golden Super Saiyan transformation!',
+          'Double-tap Bug to pet it and unleash its blazing golden Super Bug transformation!',
       };
     }
     return {
       kickerLeft: 'NIVEL 90',
       kickerRight: 'PODER LEGENDARIO',
-      title: '¡BUG SUPER SAIYAJIN DESBLOQUEADO!',
+      title: '¡SUPER BUG DESBLOQUEADO!',
       description:
-        'Acaricia a Bug con doble toque para desatar su transformación dorada de Super Saiyajin.',
+        'Acaricia a Bug con doble toque para desatar su transformación dorada de Super Bug.',
     };
   }
 
