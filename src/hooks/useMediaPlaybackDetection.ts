@@ -1,9 +1,8 @@
 /**
  * Detección de reproducción multimedia para la reacción de baile de Bug:
- * - Detecta elementos `<audio>` y `<video>` activos en el documento o creados en memoria
- *   (excluyendo las pistas internas del temporizador/alarma de Upgrade).
- * - Consulta `navigator.mediaSession` y puentes nativos del sistema móvil (`AudioManager.isMusicActive`,
- *   `MediaPlaybackBridge` o plugins de sesión multimedia) cuando están disponibles.
+ * - Si el usuario vincula su cuenta de Spotify (OAuth 2.0), consulta en tiempo real si Spotify
+ *   está reproduciendo música en el móvil, auriculares, ordenador o altavoz.
+ * - Detecta también elementos `<audio>` y `<video>` externos dentro del navegador y puentes nativos.
  * - Respeta el modo elegido por el usuario en Personalizar Bug (`auto` | `on` | `off`).
  */
 
@@ -13,6 +12,11 @@ import {
   isInternalAppAudioElement,
   isInternalTimerAudioActive,
 } from '../utils/audioEffects';
+import {
+  fetchSpotifyCurrentlyPlaying,
+  loadSpotifyTokens,
+  subscribeSpotifyTokensChange,
+} from '../utils/spotifyAuth';
 
 interface NativeMediaPlaybackBridge {
   isMusicActive?: () => boolean | Promise<boolean>;
@@ -153,8 +157,11 @@ export function useMediaPlaybackDetection(mode: BugMusicMode = 'auto'): boolean 
     ensureMediaPrototypePatched();
     let disposed = false;
     let externalEventPlaying = false;
+    let spotifyPlaying = false;
+    let lastSpotifyCheckMs = 0;
+    let spotifyCheckInFlight = false;
 
-    const evaluateNow = async () => {
+    const evaluateNow = async (forceSpotifyCheck = false) => {
       if (disposed) return;
 
       let active =
@@ -177,19 +184,42 @@ export function useMediaPlaybackDetection(mode: BugMusicMode = 'auto'): boolean 
         }
       }
 
+      const hasSpotify = Boolean(loadSpotifyTokens());
+      if (!hasSpotify) {
+        spotifyPlaying = false;
+      } else if (!active && document.visibilityState !== 'hidden') {
+        const now = Date.now();
+        if ((forceSpotifyCheck || now - lastSpotifyCheckMs >= 4800) && !spotifyCheckInFlight) {
+          spotifyCheckInFlight = true;
+          lastSpotifyCheckMs = now;
+          try {
+            spotifyPlaying = await fetchSpotifyCurrentlyPlaying();
+          } finally {
+            spotifyCheckInFlight = false;
+          }
+        }
+        if (spotifyPlaying) {
+          active = true;
+        }
+      }
+
       if (!disposed) {
         setDetectedPlaying((prev) => (prev === active ? prev : active));
       }
     };
 
-    const syncSync = () => {
-      void evaluateNow();
+    const syncFast = () => {
+      void evaluateNow(false);
+    };
+
+    const syncWithSpotify = () => {
+      void evaluateNow(true);
     };
 
     const handleCaptureMediaEvent = (e: Event) => {
       if (e.target instanceof HTMLMediaElement && !isInternalAppAudioElement(e.target)) {
         bindMediaElementEvents(e.target);
-        syncSync();
+        syncFast();
       }
     };
 
@@ -199,19 +229,20 @@ export function useMediaPlaybackDetection(mode: BugMusicMode = 'auto'): boolean 
         const nextVal = detail.playing ?? detail.isPlaying;
         if (typeof nextVal === 'boolean') {
           externalEventPlaying = nextVal;
-          syncSync();
+          syncFast();
         }
       }
     };
 
-    mediaStateSubscribers.add(syncSync);
+    const unsubSpotify = subscribeSpotifyTokensChange(syncWithSpotify);
+    mediaStateSubscribers.add(syncFast);
     document.addEventListener('play', handleCaptureMediaEvent, true);
     document.addEventListener('playing', handleCaptureMediaEvent, true);
     document.addEventListener('pause', handleCaptureMediaEvent, true);
     document.addEventListener('ended', handleCaptureMediaEvent, true);
     document.addEventListener('volumechange', handleCaptureMediaEvent, true);
-    document.addEventListener('visibilitychange', syncSync);
-    window.addEventListener('focus', syncSync);
+    document.addEventListener('visibilitychange', syncWithSpotify);
+    window.addEventListener('focus', syncWithSpotify);
     window.addEventListener('mediaplaybackchange', handleCustomBridgeEvent);
     window.addEventListener('nativeMediaPlaybackChange', handleCustomBridgeEvent);
 
@@ -220,28 +251,29 @@ export function useMediaPlaybackDetection(mode: BugMusicMode = 'auto'): boolean 
       const flag = state?.playing ?? state?.isPlaying;
       if (typeof flag === 'boolean') {
         externalEventPlaying = flag;
-        syncSync();
+        syncFast();
       }
     });
 
-    void evaluateNow();
+    void evaluateNow(true);
     const pollId = window.setInterval(() => {
       if (document.visibilityState !== 'hidden') {
-        void evaluateNow();
+        void evaluateNow(false);
       }
-    }, 1800);
+    }, 2000);
 
     return () => {
       disposed = true;
-      mediaStateSubscribers.delete(syncSync);
+      unsubSpotify();
+      mediaStateSubscribers.delete(syncFast);
       window.clearInterval(pollId);
       document.removeEventListener('play', handleCaptureMediaEvent, true);
       document.removeEventListener('playing', handleCaptureMediaEvent, true);
       document.removeEventListener('pause', handleCaptureMediaEvent, true);
       document.removeEventListener('ended', handleCaptureMediaEvent, true);
       document.removeEventListener('volumechange', handleCaptureMediaEvent, true);
-      document.removeEventListener('visibilitychange', syncSync);
-      window.removeEventListener('focus', syncSync);
+      document.removeEventListener('visibilitychange', syncWithSpotify);
+      window.removeEventListener('focus', syncWithSpotify);
       window.removeEventListener('mediaplaybackchange', handleCustomBridgeEvent);
       window.removeEventListener('nativeMediaPlaybackChange', handleCustomBridgeEvent);
       if (nativeSub && typeof nativeSub === 'object' && typeof nativeSub.remove === 'function') {

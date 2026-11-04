@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, Check, Edit3 } from 'lucide-react';
+import { Activity, Check, Edit3, Lock, Smartphone } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 import { XpFormulas } from '../types';
 import { calculateStepsXp, KM_PER_STEP } from '../utils/progressionRules';
@@ -21,6 +21,7 @@ interface DailyStepsDialProps {
   onUpdateDaySteps: (dateIso: string, nextSteps: number) => void;
   onUpdateStepGoal: (newGoal: number) => void;
   isMotionSensorReceiving?: boolean;
+  motionStepsEnabled?: boolean;
 }
 
 const DIAL_SIZE = 224;
@@ -82,6 +83,7 @@ export const DailyStepsDial: React.FC<DailyStepsDialProps> = React.memo(({
   onUpdateDaySteps,
   onUpdateStepGoal,
   isMotionSensorReceiving = false,
+  motionStepsEnabled = false,
 }) => {
   const { locale, t } = useI18n();
   const safeGoal = Math.max(500, stepGoal);
@@ -100,8 +102,48 @@ export const DailyStepsDial: React.FC<DailyStepsDialProps> = React.memo(({
   const [isEditingGoal, setIsEditingGoal] = useState(false);
   const [goalInput, setGoalInput] = useState('');
 
+  const [isPocketModeOpen, setIsPocketModeOpen] = useState(false);
+  const lastUnlockTapRef = useRef<number>(0);
+
   const svgRef = useRef<SVGSVGElement | null>(null);
   const cachedCenterRef = useRef<{ cx: number; cy: number } | null>(null);
+
+  useEffect(() => {
+    if (!isPocketModeOpen) return;
+    if (typeof navigator === 'undefined' || !('wakeLock' in navigator)) return;
+
+    let cancelled = false;
+    let sentinel: WakeLockSentinel | null = null;
+
+    const acquireLock = async () => {
+      try {
+        const lock = await navigator.wakeLock.request('screen');
+        if (cancelled) {
+          void lock.release().catch(() => {});
+          return;
+        }
+        sentinel = lock;
+      } catch {
+        // Ignorar si ahorro de batería bloquea Wake Lock
+      }
+    };
+
+    const handleVis = () => {
+      if (document.visibilityState === 'visible' && !cancelled) {
+        void acquireLock();
+      }
+    };
+
+    void acquireLock();
+    document.addEventListener('visibilitychange', handleVis);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', handleVis);
+      if (sentinel) {
+        void sentinel.release().catch(() => {});
+      }
+    };
+  }, [isPocketModeOpen]);
 
   useEffect(() => {
     setDraftSteps(safeSavedSteps);
@@ -531,13 +573,70 @@ export const DailyStepsDial: React.FC<DailyStepsDialProps> = React.memo(({
           </button>
         )}
 
-        {isSelectedToday && isMotionSensorReceiving && (
-          <div className="mt-3 pt-2.5 border-t border-subtle w-full flex items-center justify-center gap-1.5 font-mono text-[11px] text-accent">
-            <Activity className="w-3.5 h-3.5 shrink-0" />
-            <span>{t.steps_sensor_live}</span>
+        {isSelectedToday && (motionStepsEnabled || isMotionSensorReceiving) && (
+          <div className="mt-3 pt-2.5 border-t border-subtle w-full flex flex-col items-center gap-2">
+            {isMotionSensorReceiving && (
+              <div className="flex items-center justify-center gap-1.5 font-mono text-[11px] text-accent">
+                <Activity className="w-3.5 h-3.5 shrink-0" />
+                <span>{t.steps_sensor_live}</span>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                lastUnlockTapRef.current = 0;
+                setIsPocketModeOpen(true);
+              }}
+              className="btn-secondary min-h-[38px] px-3.5 py-1.5 text-xs flex items-center justify-center gap-1.5 whitespace-nowrap"
+            >
+              <Smartphone className="w-3.5 h-3.5 text-accent shrink-0" />
+              <span>{t.steps_pocket_mode_btn}</span>
+            </button>
           </div>
         )}
       </div>
+
+      {/* Superposición OLED 100% negra con bloqueo táctil para contar pasos en el bolsillo */}
+      {isPocketModeOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={t.steps_pocket_active_title}
+          className="fixed inset-0 z-[70] bg-black text-zinc-500 select-none touch-none flex flex-col items-center justify-between px-6 py-12"
+        >
+          <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-widest text-zinc-600">
+            <Lock className="w-3.5 h-3.5 shrink-0" />
+            <span>{t.steps_pocket_active_title}</span>
+          </div>
+
+          <div className="flex flex-col items-center text-center gap-1.5">
+            <span className="font-mono text-4xl font-bold text-zinc-400 tabular-nums">
+              {safeSavedSteps.toLocaleString(locale)}
+            </span>
+            <span className="font-mono text-xs text-zinc-600 tabular-nums">
+              {(safeSavedSteps * KM_PER_STEP).toFixed(2)} {t.steps_km_unit}
+            </span>
+            <span className="text-[11px] text-zinc-700 mt-1">{t.steps_pocket_active_sub}</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              const now = Date.now();
+              if (now - lastUnlockTapRef.current <= 900) {
+                lastUnlockTapRef.current = 0;
+                setIsPocketModeOpen(false);
+              } else {
+                lastUnlockTapRef.current = now;
+              }
+            }}
+            className="min-h-[48px] px-5 py-2.5 rounded-[4px] border border-zinc-800 bg-black text-zinc-500 font-mono text-xs uppercase tracking-wider cursor-pointer active:border-zinc-600 whitespace-nowrap"
+          >
+            {t.steps_pocket_unlock_btn}
+          </button>
+        </div>
+      )}
     </section>
   );
 });

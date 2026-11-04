@@ -16,6 +16,7 @@ import {
   Compass,
   Download,
   Globe,
+  Link2,
   Lock,
   MessageSquare,
   Moon,
@@ -29,6 +30,7 @@ import {
   Sun,
   Trash2,
   Type,
+  Unlink,
   Upload,
   Volume2,
   X,
@@ -76,6 +78,12 @@ import {
   localizeXpFormulasIfDefault,
 } from '../utils/progressionRules';
 import { validateXpFormula } from '../utils/xpFormulaParser';
+import {
+  clearSpotifyTokens,
+  loadSpotifyTokens,
+  startSpotifyOAuthFlow,
+  subscribeSpotifyTokensChange,
+} from '../utils/spotifyAuth';
 import { BugPixelGraphic } from './BugCompanion';
 import { InteractiveColorPicker } from './InteractiveColorPicker';
 
@@ -389,6 +397,7 @@ interface ProfileSettingsModalProps {
   onChangeTimerNotifications?: (enabled: boolean) => void;
   motionStepsEnabled?: boolean;
   onChangeMotionSteps?: (enabled: boolean) => void;
+  isMusicPlaying?: boolean;
 }
 
 export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
@@ -436,6 +445,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   onChangeTimerNotifications,
   motionStepsEnabled = false,
   onChangeMotionSteps,
+  isMusicPlaying = false,
 }) => {
   const {
     language,
@@ -460,7 +470,25 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const [newBugPhraseCategory, setNewBugPhraseCategory] = useState<BugDialogueCategory>('streak');
   const [newBugPhraseDraft, setNewBugPhraseDraft] = useState('');
   const [backupFeedback, setBackupFeedback] = useState<'success' | 'error' | null>(null);
+  const [isSpotifyConnected, setIsSpotifyConnected] = useState<boolean>(() =>
+    Boolean(loadSpotifyTokens())
+  );
+  const [spotifyFeedback, setSpotifyFeedback] = useState<
+    'missing_config' | 'popup_blocked' | null
+  >(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const syncSpotify = () => {
+      const connected = Boolean(loadSpotifyTokens());
+      setIsSpotifyConnected(connected);
+      if (connected) {
+        setSpotifyFeedback(null);
+      }
+    };
+    syncSpotify();
+    return subscribeSpotifyTokensChange(syncSpotify);
+  }, []);
 
   const unlockedHatsSet = useMemo(
     () => new Set<BugWearableHatId>(bugUnlockedHats),
@@ -533,6 +561,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
       setNewBugPhraseDraft('');
       setShowIOSInstallGuide(false);
       setBackupFeedback(null);
+      setSpotifyFeedback(null);
       setPreviewHop(false);
       setPreviewSsj(false);
       secretTapRef.current = { count: 0, lastTapMs: 0 };
@@ -1143,6 +1172,11 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                         {t.settings_toggle_off}
                       </button>
                     </div>
+                    {motionStepsEnabled && (
+                      <p className="text-[11px] leading-relaxed text-fg-muted">
+                        {t.settings_motion_steps_note}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -1206,7 +1240,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                     ? 'animate-bug-ssj'
                     : previewHop
                     ? 'animate-bug-top-hop'
-                    : bugMusicMode === 'on'
+                    : bugMusicMode === 'on' || (bugMusicMode === 'auto' && isMusicPlaying)
                     ? 'animate-bug-music-dance'
                     : ''
                 }`}
@@ -1217,7 +1251,10 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                   expression="happy"
                   hat={equippedPreviewHat}
                   hatColor={equippedPreviewHatColor}
-                  showMusicNotes={bugMusicMode === 'on' && !previewSsj}
+                  showMusicNotes={
+                    (bugMusicMode === 'on' || (bugMusicMode === 'auto' && isMusicPlaying)) &&
+                    !previewSsj
+                  }
                   isGrown={isBugGrown}
                   isSuperSaiyan={previewSsj}
                 />
@@ -1362,6 +1399,61 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                       </button>
                     ))}
                   </div>
+
+                  <p className="text-[11px] leading-relaxed text-fg-muted">
+                    {t.settings_bug_music_external_hint}
+                  </p>
+
+                  {isSpotifyConnected ? (
+                    <div className="flex items-center justify-between gap-2 rounded-[4px] border border-accent bg-surface px-3 py-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Check className="w-3.5 h-3.5 text-accent shrink-0" />
+                        <span className="text-xs font-semibold text-fg truncate">
+                          {t.settings_bug_spotify_connected}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          clearSpotifyTokens();
+                          setSpotifyFeedback(null);
+                        }}
+                        className="btn-secondary min-h-[36px] px-2.5 py-1 text-xs flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                      >
+                        <Unlink className="w-3.5 h-3.5 shrink-0" />
+                        <span>{t.settings_bug_spotify_disconnect_btn}</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSpotifyFeedback(null);
+                        void startSpotifyOAuthFlow().then((res) => {
+                          if (res === 'opened' && bugMusicMode === 'off') {
+                            onChangeBugMusicMode('auto');
+                          } else if (res === 'missing_config' || res === 'popup_blocked') {
+                            setSpotifyFeedback(res);
+                          }
+                        });
+                      }}
+                      className="btn-secondary w-full min-h-[40px] px-3 py-2 text-xs flex items-center justify-center gap-2 whitespace-nowrap"
+                    >
+                      <Link2 className="w-3.5 h-3.5 text-accent shrink-0" />
+                      <span>{t.settings_bug_spotify_connect_btn}</span>
+                    </button>
+                  )}
+
+                  {spotifyFeedback === 'missing_config' && (
+                    <p className="text-[11px] leading-relaxed text-accent">
+                      {t.settings_bug_spotify_missing_env}
+                    </p>
+                  )}
+                  {spotifyFeedback === 'popup_blocked' && (
+                    <p className="text-[11px] leading-relaxed text-accent">
+                      {t.settings_bug_spotify_popup_blocked}
+                    </p>
+                  )}
                 </div>
               )}
 

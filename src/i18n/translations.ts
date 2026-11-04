@@ -350,6 +350,21 @@ export const DEFAULT_ES_TEXTS = {
   settings_toggle_on: 'Activado',
   settings_toggle_off: 'Desactivado',
   steps_sensor_live: 'Podómetro activo',
+  steps_pocket_mode_btn: 'Modo bolsillo (OLED)',
+  steps_pocket_active_title: 'Modo bolsillo activo',
+  steps_pocket_active_sub: 'Pantalla negra OLED · Contando pasos',
+  steps_pocket_unlock_btn: 'Toca 2 veces para salir',
+  settings_motion_steps_note:
+    'Por seguridad de Android e iOS, el navegador pausa los sensores al cerrar la app o bloquear con botón físico. Usa «Modo bolsillo (OLED)» en Pasos para caminar con la pantalla negra.',
+  settings_bug_spotify_connect_btn: 'Vincular Spotify',
+  settings_bug_spotify_connected: 'Spotify vinculado',
+  settings_bug_spotify_disconnect_btn: 'Desvincular',
+  settings_bug_spotify_missing_env:
+    'Añade SPOTIFY_CLIENT_ID en las variables de entorno de la app para vincular Spotify.',
+  settings_bug_spotify_popup_blocked:
+    'Permite ventanas emergentes en tu navegador para completar la conexión con Spotify.',
+  settings_bug_music_external_hint:
+    'Los navegadores móviles aíslan el audio de otras apps: vincula Spotify para detección automática o elige «Siempre».',
 } as const;
 
 export type UiTextKey = keyof typeof DEFAULT_ES_TEXTS;
@@ -697,6 +712,21 @@ export const DEFAULT_EN_TEXTS: UiTextsMap = {
   settings_toggle_on: 'On',
   settings_toggle_off: 'Off',
   steps_sensor_live: 'Pedometer active',
+  steps_pocket_mode_btn: 'Pocket mode (OLED)',
+  steps_pocket_active_title: 'Pocket mode active',
+  steps_pocket_active_sub: 'OLED black screen · Counting steps',
+  steps_pocket_unlock_btn: 'Double-tap to exit',
+  settings_motion_steps_note:
+    'Due to Android & iOS security, browsers pause sensors if the app is closed or hardware-locked. Use "Pocket mode (OLED)" in Steps to walk with a black screen.',
+  settings_bug_spotify_connect_btn: 'Connect Spotify',
+  settings_bug_spotify_connected: 'Spotify linked',
+  settings_bug_spotify_disconnect_btn: 'Disconnect',
+  settings_bug_spotify_missing_env:
+    'Add SPOTIFY_CLIENT_ID in the app environment variables to link Spotify.',
+  settings_bug_spotify_popup_blocked:
+    'Please allow popups in your browser to complete Spotify sign-in.',
+  settings_bug_music_external_hint:
+    'Mobile browsers isolate audio from other apps: link Spotify for automatic detection or select "Always".',
 };
 
 export const DEFAULT_UI_TEXTS: Record<AppLanguage, UiTextsMap> = {

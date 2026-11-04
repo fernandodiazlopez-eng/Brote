@@ -126,17 +126,15 @@ export async function requestMotionSensorPermission(): Promise<
   // 3) Android / Chromium: comprobar permisos y arrancar brevemente el sensor de hardware
   //    para disparar el cuadro real de permiso de "Sensores de movimiento / Actividad física" si está en 'prompt'
   if (typeof navigator !== 'undefined' && 'permissions' in navigator && navigator.permissions) {
-    for (const permName of ['accelerometer', 'gyroscope']) {
-      try {
-        const status = await navigator.permissions.query({
-          name: permName as PermissionName,
-        });
-        if (status.state === 'denied') {
-          return 'denied';
-        }
-      } catch {
-        // Ignorar nombres de permiso no soportados por el navegador
+    try {
+      const status = await navigator.permissions.query({
+        name: 'accelerometer' as PermissionName,
+      });
+      if (status.state === 'denied') {
+        return 'denied';
       }
+    } catch {
+      // Ignorar nombres de permiso no soportados por el navegador
     }
   }
 

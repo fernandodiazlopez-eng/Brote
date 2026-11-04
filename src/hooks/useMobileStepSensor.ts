@@ -2,9 +2,9 @@
  * Podómetro automático con sensores físicos del dispositivo:
  * - Si existe puente nativo de podómetro de hardware (`StepCounter` / `ACTIVITY_RECOGNITION` / `CMPedometer`),
  *   sincroniza directamente el contador acumulado del chip incluso al reabrir tras pantalla apagada.
- * - En navegador / PWA utiliza `LinearAccelerationSensor` (50 Hz con gravedad compensada por hardware en Android),
- *   `Accelerometer` o `DeviceMotionEvent` (`acceleration` lineal por hardware o filtro paso-alto) para detectar
- *   la cadencia real de pasos al caminar o correr con el móvil encima.
+ * - En navegador / PWA utiliza `LinearAccelerationSensor`, `Accelerometer` o `DeviceMotionEvent`
+ *   con filtrado paso-alto basado en tiempo real (`dt`) para no atenuar la frecuencia de paso (~1.5–2.2 Hz)
+ *   y vacía inmediatamente los pasos pendientes si la pantalla pasa a segundo plano.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -29,11 +29,11 @@ export interface MobileStepSensorStatus {
   isReceivingMotion: boolean;
 }
 
-const PEAK_THRESHOLD_MPS2 = 1.18;
-const TROUGH_RESET_MPS2 = 0.38;
-const MIN_STEP_INTERVAL_MS = 270; // máx ~222 pasos/min corriendo
-const MAX_STEP_INTERVAL_MS = 2200; // mín ~27 pasos/min caminando despacio
-const CADENCE_WARMUP_STEPS = 4; // exige 4 pasos rítmicos seguidos para descartar gestos aislados
+const PEAK_THRESHOLD_MPS2 = 0.78;
+const TROUGH_RESET_MPS2 = -0.06;
+const MIN_STEP_INTERVAL_MS = 260; // máx ~230 pasos/min corriendo
+const MAX_STEP_INTERVAL_MS = 2150; // mín ~28 pasos/min caminando despacio
+const CADENCE_WARMUP_STEPS = 3; // exige 3 pasos rítmicos seguidos para descartar gestos aislados
 
 export function useMobileStepSensor({
   enabled,
@@ -61,8 +61,9 @@ export function useMobileStepSensor({
 
     let disposed = false;
     let hasSeenRealSample = false;
-    let gravityMag = 9.81;
-    let gravityInitialized = false;
+    let baselineMag = 9.81;
+    let baselineInitialized = false;
+    let lastSamplePerfMs = 0;
     let prevDyn1 = 0;
     let prevDyn2 = 0;
     let armedForPeak = true;
@@ -71,6 +72,14 @@ export function useMobileStepSensor({
     let streakCommitted = false;
     let pendingStepsBuffer = 0;
     let lastPointerTouchMs = 0;
+
+    const flushPendingStepsNow = () => {
+      if (pendingStepsBuffer > 0) {
+        const delta = pendingStepsBuffer;
+        pendingStepsBuffer = 0;
+        deltaCallbackRef.current(delta);
+      }
+    };
 
     const markActive = () => {
       if (!hasSeenRealSample && !disposed) {
@@ -119,20 +128,20 @@ export function useMobileStepSensor({
     const handleVisibilitySync = () => {
       if (document.visibilityState === 'visible') {
         void syncFromNativeHardware();
+      } else {
+        flushPendingStepsNow();
       }
+    };
+
+    const handlePageHide = () => {
+      flushPendingStepsNow();
     };
 
     const handlePointerDown = () => {
       lastPointerTouchMs = performance.now();
     };
 
-    const flushIntervalId = window.setInterval(() => {
-      if (pendingStepsBuffer > 0) {
-        const delta = pendingStepsBuffer;
-        pendingStepsBuffer = 0;
-        deltaCallbackRef.current(delta);
-      }
-    }, 1500);
+    const flushIntervalId = window.setInterval(flushPendingStepsNow, 1200);
 
     const processAccelerationSample = (
       ax: number,
@@ -144,31 +153,27 @@ export function useMobileStepSensor({
       markActive();
 
       const now = performance.now();
+      const dtSec =
+        lastSamplePerfMs > 0 ? Math.min(0.25, Math.max(0.005, (now - lastSamplePerfMs) / 1000)) : 0.025;
+      lastSamplePerfMs = now;
+
       // Ignorar micro-vibraciones al tocar controles en pantalla
-      if (now - lastPointerTouchMs < 220) return;
+      if (now - lastPointerTouchMs < 200) return;
 
       const mag = Math.hypot(ax, ay, az);
-      let rawDyn: number;
-
-      if (!includesGravity) {
-        // Sensor lineal con gravedad ya eliminada por hardware: centrar respecto a su media móvil lenta
-        if (!gravityInitialized) {
-          gravityMag = mag;
-          gravityInitialized = true;
-          return;
-        }
-        gravityMag = gravityMag * 0.92 + mag * 0.08;
-        rawDyn = mag - gravityMag * 0.55;
-      } else {
-        if (!gravityInitialized) {
-          gravityMag = mag;
-          gravityInitialized = true;
-          return;
-        }
-        gravityMag = gravityMag * 0.9 + mag * 0.1;
-        rawDyn = mag - gravityMag;
+      if (!baselineInitialized) {
+        baselineMag = mag;
+        baselineInitialized = true;
+        return;
       }
 
+      // Filtro paso-bajo basado en tiempo real (constante ~0.95s) para estimar gravedad/nivel medio
+      // sin comerse la onda de paso humano (~0.45s–0.7s) independientemente de si el sensor va a 30Hz o 60Hz
+      const tauSec = includesGravity ? 0.95 : 1.15;
+      const alpha = dtSec / (tauSec + dtSec);
+      baselineMag = baselineMag + alpha * (mag - baselineMag);
+
+      const rawDyn = mag - baselineMag;
       const filteredDyn = (rawDyn + prevDyn1 + prevDyn2) / 3;
       prevDyn2 = prevDyn1;
       prevDyn1 = rawDyn;
@@ -197,7 +202,7 @@ export function useMobileStepSensor({
       }
     };
 
-    // 2. Intentar primero sensor W3C de hardware (50 Hz) en Android / Chromium; si falla o no existe, usar devicemotion
+    // 2. Intentar sensor W3C de hardware (30 Hz universalmente permitido) en Android / Chromium; fallback a devicemotion
     let w3cSensor: W3CMotionSensorInstance | null = null;
     let usingW3CSensor = false;
 
@@ -209,7 +214,7 @@ export function useMobileStepSensor({
         linAcc.x !== null &&
         linAcc.y !== null &&
         linAcc.z !== null &&
-        (Math.abs(linAcc.x) > 0.001 || Math.abs(linAcc.y) > 0.001 || Math.abs(linAcc.z) > 0.001)
+        (Math.abs(linAcc.x) > 0.005 || Math.abs(linAcc.y) > 0.005 || Math.abs(linAcc.z) > 0.005)
       ) {
         processAccelerationSample(linAcc.x, linAcc.y, linAcc.z, false);
         return;
@@ -223,6 +228,7 @@ export function useMobileStepSensor({
     window.addEventListener('devicemotion', handleDeviceMotion, { passive: true });
     document.addEventListener('visibilitychange', handleVisibilitySync);
     window.addEventListener('pageshow', handleVisibilitySync);
+    window.addEventListener('pagehide', handlePageHide);
 
     const LinearCtor = getLinearAccelerationSensorCtor();
     const AccelCtor = getAccelerometerCtor();
@@ -231,7 +237,7 @@ export function useMobileStepSensor({
 
     if (ChosenCtor) {
       try {
-        const instance = new ChosenCtor({ frequency: 50 });
+        const instance = new ChosenCtor({ frequency: 30 });
         const onReading = () => {
           const sx = instance.x;
           const sy = instance.y;
@@ -265,6 +271,7 @@ export function useMobileStepSensor({
       window.removeEventListener('devicemotion', handleDeviceMotion);
       document.removeEventListener('visibilitychange', handleVisibilitySync);
       window.removeEventListener('pageshow', handleVisibilitySync);
+      window.removeEventListener('pagehide', handlePageHide);
 
       if (w3cSensor) {
         try {
@@ -280,11 +287,7 @@ export function useMobileStepSensor({
           // Ignorar
         }
       }
-      if (pendingStepsBuffer > 0) {
-        const remaining = pendingStepsBuffer;
-        pendingStepsBuffer = 0;
-        deltaCallbackRef.current(remaining);
-      }
+      flushPendingStepsNow();
     };
   }, [enabled, isSupported]);
 

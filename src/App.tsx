@@ -1049,7 +1049,10 @@ export default function App() {
 
   useEffect(() => {
     const shouldKeepScreenOn =
-      isDocumentVisible && (isWorkoutScreenVisible || isAlarmRinging);
+      isDocumentVisible &&
+      (isWorkoutScreenVisible ||
+        isAlarmRinging ||
+        (Boolean(appState.motionStepsEnabled) && activeTab === AppTab.PROFILE));
     if (!shouldKeepScreenOn) return;
     if (typeof navigator === 'undefined' || !('wakeLock' in navigator)) return;
 
@@ -1078,7 +1081,13 @@ export default function App() {
         wakeLockSentinel = null;
       }
     };
-  }, [isDocumentVisible, isWorkoutScreenVisible, isAlarmRinging]);
+  }, [
+    isDocumentVisible,
+    isWorkoutScreenVisible,
+    isAlarmRinging,
+    appState.motionStepsEnabled,
+    activeTab,
+  ]);
 
   useEffect(() => {
     if (!isStopwatchRunning && !isCountdownRunning) return;
@@ -2773,6 +2782,7 @@ export default function App() {
               onChangeTimerNotifications={handleChangeTimerNotifications}
               motionStepsEnabled={Boolean(appState.motionStepsEnabled)}
               onChangeMotionSteps={handleChangeMotionSteps}
+              isMusicPlaying={isMusicPlaying}
             />
           )}
 
