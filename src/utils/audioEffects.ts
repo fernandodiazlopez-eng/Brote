@@ -22,6 +22,15 @@ let countdownTrackAudio: HTMLAudioElement | null = null;
 let countdownTrackBlobUrl: string | null = null;
 let alarmLoopTrackAudio: HTMLAudioElement | null = null;
 let alarmLoopTrackBlobUrl: string | null = null;
+const internalAudioElements = new WeakSet<HTMLMediaElement>();
+
+export function isInternalAppAudioElement(el: HTMLMediaElement): boolean {
+  return internalAudioElements.has(el) || el.dataset?.upgradeInternal === 'true';
+}
+
+export function isInternalTimerAudioActive(): boolean {
+  return isCountdownArmed || alarmLoopIntervalId !== null;
+}
 
 const TRACK_SAMPLE_RATE = 8000;
 const CHIME_CYCLE_SEC = 1.5;
@@ -253,6 +262,8 @@ function getOrCreateAlarmLoopAudio(): HTMLAudioElement | null {
     el.volume = 1.0;
     el.preload = 'auto';
     el.setAttribute('playsinline', 'true');
+    el.dataset.upgradeInternal = 'true';
+    internalAudioElements.add(el);
     alarmLoopTrackAudio = el;
   }
   return alarmLoopTrackAudio;
@@ -352,6 +363,8 @@ export function armCountdownBackgroundAudio(
       if (!countdownTrackAudio) {
         countdownTrackAudio = new Audio();
         countdownTrackAudio.setAttribute('playsinline', 'true');
+        countdownTrackAudio.dataset.upgradeInternal = 'true';
+        internalAudioElements.add(countdownTrackAudio);
       }
       countdownTrackAudio.src = wavUrl;
       countdownTrackAudio.loop = false;

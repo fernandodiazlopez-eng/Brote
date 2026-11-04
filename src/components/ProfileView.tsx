@@ -13,10 +13,13 @@ import { UiTextKey } from '../i18n/translations';
 import {
   AccentPaletteId,
   BugDialogueCategory,
+  BugHatId,
+  BugMusicMode,
   CompletedWorkout,
   CustomBugPhrase,
   DailyActivityRecord,
   MuscleGroupId,
+  RgbColor,
   Routine,
   ThemeMode,
   WeekDayInfo,
@@ -73,12 +76,19 @@ interface ProfileViewProps {
   onExportBackup: () => void;
   onImportBackupJson: (rawText: string) => boolean;
   isBugUnlocked?: boolean;
+  isBugCustomizationUnlocked?: boolean;
   hideBug?: boolean;
   onChangeHideBug?: (hide: boolean) => void;
   muteBugText?: boolean;
   onChangeMuteBugText?: (mute: boolean) => void;
   muteBugBounceSound?: boolean;
   onChangeMuteBugBounceSound?: (mute: boolean) => void;
+  bugMusicMode?: BugMusicMode;
+  onChangeBugMusicMode?: (mode: BugMusicMode) => void;
+  bugSelectedHat?: BugHatId;
+  onChangeBugSelectedHat?: (hat: BugHatId) => void;
+  bugHatColors?: Partial<Record<Exclude<BugHatId, 'none'>, RgbColor>>;
+  onChangeBugHatColor?: (hat: Exclude<BugHatId, 'none'>, color: RgbColor) => void;
   deletedBugPhraseKeys?: string[];
   customBugPhrases?: CustomBugPhrase[];
   onAddCustomBugPhrase?: (category: BugDialogueCategory, text: string) => void;
@@ -149,12 +159,19 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
   onExportBackup,
   onImportBackupJson,
   isBugUnlocked = false,
+  isBugCustomizationUnlocked = false,
   hideBug = false,
   onChangeHideBug,
   muteBugText = false,
   onChangeMuteBugText,
   muteBugBounceSound = false,
   onChangeMuteBugBounceSound,
+  bugMusicMode = 'auto',
+  onChangeBugMusicMode,
+  bugSelectedHat = 'none',
+  onChangeBugSelectedHat,
+  bugHatColors,
+  onChangeBugHatColor,
   deletedBugPhraseKeys,
   customBugPhrases,
   onAddCustomBugPhrase,
@@ -1175,12 +1192,19 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
         onExportBackup={onExportBackup}
         onImportBackupJson={onImportBackupJson}
         isBugUnlocked={isBugUnlocked}
+        isBugCustomizationUnlocked={isBugCustomizationUnlocked}
         hideBug={hideBug}
         onChangeHideBug={onChangeHideBug}
         muteBugText={muteBugText}
         onChangeMuteBugText={onChangeMuteBugText}
         muteBugBounceSound={muteBugBounceSound}
         onChangeMuteBugBounceSound={onChangeMuteBugBounceSound}
+        bugMusicMode={bugMusicMode}
+        onChangeBugMusicMode={onChangeBugMusicMode}
+        bugSelectedHat={bugSelectedHat}
+        onChangeBugSelectedHat={onChangeBugSelectedHat}
+        bugHatColors={bugHatColors}
+        onChangeBugHatColor={onChangeBugHatColor}
         deletedBugPhraseKeys={deletedBugPhraseKeys}
         customBugPhrases={customBugPhrases}
         onAddCustomBugPhrase={onAddCustomBugPhrase}

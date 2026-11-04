@@ -69,6 +69,7 @@ export interface RoutineExercise {
   name: string;
   setsReps: string;
   weightKg?: number;
+  isDropset?: boolean;
   distanceKm?: number;
   durationMin?: number;
   muscleGroups?: MuscleGroupId[];
@@ -114,6 +115,16 @@ export interface WeekDayInfo {
   monthShort: string;
 }
 
+export type BugHatId = 'none' | 'headphones' | 'bow';
+
+export interface RgbColor {
+  r: number;
+  g: number;
+  b: number;
+}
+
+export type BugMusicMode = 'auto' | 'on' | 'off';
+
 export interface AppPersistentState {
   firstOpenDateIso: string;
   lastProcessedDateIso: string;
@@ -138,6 +149,10 @@ export interface AppPersistentState {
   bugUnlockedAtIso?: string; // fecha ISO al alcanzar Nivel 3 y descubrir a Bug
   bugPetUnlockedAtIso?: string; // fecha ISO al alcanzar Nivel 4 y desbloquear acariciar a Bug
   bugHockeyUnlockedAtIso?: string; // fecha ISO al alcanzar Nivel 5 y desbloquear jugar / lanzar a Bug
+  bugCustomizationUnlockedAtIso?: string; // fecha ISO al alcanzar Nivel 25 y desbloquear gorros y personalización
+  bugSelectedHat?: BugHatId; // gorro equipado por Bug (Nivel 25+)
+  bugHatColors?: Partial<Record<Exclude<BugHatId, 'none'>, RgbColor>>; // color RGB por cada gorro
+  bugMusicMode?: BugMusicMode; // reacción de baile con música ('auto' por defecto)
   hideBug?: boolean; // opción en Ajustes para ocultar o mostrar a Bug tras desbloquearlo
   muteBugText?: boolean; // opción en Ajustes para silenciar el tren de texto («Bug dice:»)
   muteBugBounceSound?: boolean; // opción en Ajustes para silenciar el sonido de rebote al lanzar a Bug
@@ -157,7 +172,12 @@ export interface CustomBugPhrase {
   text: string;
 }
 
-export type BugUnlockMilestone = 'level3' | 'level4' | 'level5';
+export type BugUnlockMilestone = 'level3' | 'level4' | 'level5' | 'level25';
+
+export interface ExerciseDropsetSessionState {
+  currentWeightKg: number;
+  drops: number[];
+}
 
 export interface ActiveWorkoutSessionState {
   activeTab: AppTab;
@@ -165,6 +185,7 @@ export interface ActiveWorkoutSessionState {
   isSessionViewOpen: boolean;
   sessionOriginTab: AppTab;
   checkedExercises: Record<string, boolean>;
+  dropsetByExercise?: Record<string, ExerciseDropsetSessionState>;
   repCounter: number;
   clockMode: WorkoutClockMode;
   stopwatchAccumMs: number;

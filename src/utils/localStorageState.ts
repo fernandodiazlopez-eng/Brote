@@ -3,7 +3,11 @@
  * y reconciliación diaria al cambiar de fecha en el calendario real.
  */
 
-import { isBugDefaultPhraseKey } from '../data/bugCompanionData';
+import {
+  DEFAULT_BUG_HAT_COLORS,
+  isBugDefaultPhraseKey,
+  sanitizeRgbColor,
+} from '../data/bugCompanionData';
 import { isValidUiTextKey } from '../i18n/translations';
 import {
   AccentPaletteId,
@@ -12,10 +16,14 @@ import {
   AppPersistentState,
   AppTab,
   BugDialogueCategory,
+  BugHatId,
+  BugMusicMode,
   CompletedWorkout,
   CustomBugPhrase,
   CustomTextsByLanguage,
   DailyActivityRecord,
+  ExerciseDropsetSessionState,
+  RgbColor,
   Routine,
   RoutineCategory,
   RoutineExercise,
@@ -360,6 +368,39 @@ function sanitizeCustomBugPhrases(
   return hasAny ? result : undefined;
 }
 
+function sanitizeBugSelectedHat(raw: unknown): BugHatId | undefined {
+  if (raw === 'none' || raw === 'headphones' || raw === 'bow') {
+    return raw;
+  }
+  return undefined;
+}
+
+function sanitizeBugMusicMode(raw: unknown): BugMusicMode | undefined {
+  if (raw === 'auto' || raw === 'on' || raw === 'off') {
+    return raw;
+  }
+  return undefined;
+}
+
+function sanitizeBugHatColors(
+  raw: unknown
+): Partial<Record<Exclude<BugHatId, 'none'>, RgbColor>> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const rec = raw as Record<string, unknown>;
+  const result: Partial<Record<Exclude<BugHatId, 'none'>, RgbColor>> = {};
+  let hasAny = false;
+
+  if (rec.headphones && typeof rec.headphones === 'object') {
+    result.headphones = sanitizeRgbColor(rec.headphones, DEFAULT_BUG_HAT_COLORS.headphones);
+    hasAny = true;
+  }
+  if (rec.bow && typeof rec.bow === 'object') {
+    result.bow = sanitizeRgbColor(rec.bow, DEFAULT_BUG_HAT_COLORS.bow);
+    hasAny = true;
+  }
+  return hasAny ? result : undefined;
+}
+
 export function createInitialAppState(todayIso: string): AppPersistentState {
   return {
     firstOpenDateIso: todayIso,
@@ -513,6 +554,8 @@ function sanitizeRoutinesList(
         const weightKg = categorySupportsMuscles(category)
           ? sanitizePositiveMetric(exRec.weightKg, 0.1, 2000)
           : undefined;
+        const isDropset =
+          categorySupportsMuscles(category) && exRec.isDropset === true ? true : undefined;
         const distanceKm = sanitizePositiveMetric(exRec.distanceKm, 0.01, 999);
         const exDurationMin = sanitizePositiveMetric(exRec.durationMin, 0.5, 600);
         exercises.push({
@@ -526,6 +569,7 @@ function sanitizeRoutinesList(
               ? exRec.setsReps.trim().slice(0, 60)
               : '',
           ...(weightKg !== undefined ? { weightKg } : {}),
+          ...(isDropset ? { isDropset: true } : {}),
           ...(distanceKm !== undefined ? { distanceKm } : {}),
           ...(exDurationMin !== undefined ? { durationMin: exDurationMin } : {}),
           ...(exerciseMuscles ? { muscleGroups: exerciseMuscles } : {}),
@@ -733,6 +777,16 @@ export function hydrateSanitizedAppState(
     : resolvedBugUnlockedAtIso && hydratedPeakLevel >= 5
     ? resolvedBugUnlockedAtIso
     : undefined;
+  const resolvedBugCustomizationUnlockedAtIso = isIsoDateString(
+    parsed.bugCustomizationUnlockedAtIso
+  )
+    ? parsed.bugCustomizationUnlockedAtIso
+    : resolvedBugUnlockedAtIso && hydratedPeakLevel >= 25
+    ? resolvedBugUnlockedAtIso
+    : undefined;
+  const sanitizedSelectedHat = sanitizeBugSelectedHat(parsed.bugSelectedHat);
+  const sanitizedHatColors = sanitizeBugHatColors(parsed.bugHatColors);
+  const sanitizedMusicMode = sanitizeBugMusicMode(parsed.bugMusicMode);
 
   const hydrated: AppPersistentState = {
     ...createInitialAppState(todayIso),
@@ -792,6 +846,12 @@ export function hydrateSanitizedAppState(
     ...(resolvedBugHockeyUnlockedAtIso
       ? { bugHockeyUnlockedAtIso: resolvedBugHockeyUnlockedAtIso }
       : {}),
+    ...(resolvedBugCustomizationUnlockedAtIso
+      ? { bugCustomizationUnlockedAtIso: resolvedBugCustomizationUnlockedAtIso }
+      : {}),
+    ...(sanitizedSelectedHat ? { bugSelectedHat: sanitizedSelectedHat } : {}),
+    ...(sanitizedHatColors ? { bugHatColors: sanitizedHatColors } : {}),
+    ...(sanitizedMusicMode ? { bugMusicMode: sanitizedMusicMode } : {}),
     ...(typeof parsed.hideBug === 'boolean' ? { hideBug: parsed.hideBug } : {}),
     ...(typeof parsed.muteBugText === 'boolean' ? { muteBugText: parsed.muteBugText } : {}),
     ...(typeof parsed.muteBugBounceSound === 'boolean'
@@ -922,6 +982,7 @@ export function createDefaultWorkoutSession(): HydratedWorkoutSession {
     isSessionViewOpen: false,
     sessionOriginTab: AppTab.TRAINING,
     checkedExercises: {},
+    dropsetByExercise: {},
     repCounter: 0,
     clockMode: WorkoutClockMode.STOPWATCH,
     stopwatchAccumMs: 0,
@@ -956,6 +1017,30 @@ export function loadWorkoutSessionFromStorage(routines: Routine[]): HydratedWork
         if (typeof isChecked === 'boolean' && isChecked) {
           checkedExercises[exerciseId] = true;
         }
+      }
+    }
+
+    const dropsetByExercise: Record<string, ExerciseDropsetSessionState> = {};
+    if (
+      validRoutineId &&
+      parsed.dropsetByExercise &&
+      typeof parsed.dropsetByExercise === 'object'
+    ) {
+      for (const [exerciseId, rawDs] of Object.entries(parsed.dropsetByExercise)) {
+        if (!rawDs || typeof rawDs !== 'object') continue;
+        const candidate = rawDs as Partial<ExerciseDropsetSessionState>;
+        const curW = sanitizePositiveMetric(candidate.currentWeightKg, 0.1, 2000);
+        if (curW === undefined) continue;
+        const cleanDrops = Array.isArray(candidate.drops)
+          ? candidate.drops
+              .map((w) => sanitizePositiveMetric(w, 0.1, 2000))
+              .filter((w): w is number => w !== undefined)
+              .slice(0, 12)
+          : [];
+        dropsetByExercise[exerciseId] = {
+          currentWeightKg: curW,
+          drops: cleanDrops,
+        };
       }
     }
 
@@ -1037,6 +1122,7 @@ export function loadWorkoutSessionFromStorage(routines: Routine[]): HydratedWork
         ? parsed.sessionOriginTab
         : AppTab.TRAINING,
       checkedExercises,
+      dropsetByExercise,
       repCounter,
       clockMode:
         parsed.clockMode === WorkoutClockMode.COUNTDOWN

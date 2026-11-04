@@ -19,12 +19,14 @@ import {
   Plus,
   RotateCcw,
   Trash2,
+  TrendingDown,
   Undo2,
   X,
 } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 import {
   AppLanguage,
+  ExerciseDropsetSessionState,
   MuscleGroupId,
   Routine,
   RoutineCategory,
@@ -50,6 +52,10 @@ interface TrainingViewProps {
   sessionFullXp?: number;
   checkedExercises: Record<string, boolean>;
   onToggleExerciseCheck: (exerciseId: string) => void;
+  dropsetByExercise?: Record<string, ExerciseDropsetSessionState>;
+  onApplyDropsetWeight?: (exerciseId: string, baseWeightKg: number, nextWeightKg: number) => void;
+  onResetDropsetWeight?: (exerciseId: string) => void;
+  onSetExerciseInitialWeight?: (routineId: string, exerciseId: string, weightKg: number) => void;
   repCounter: number;
   onIncrementRepCounter: () => void;
   onResetRepCounter: () => void;
@@ -80,6 +86,7 @@ interface DraftRoutineExercise {
   name: string;
   setsReps: string;
   weightInput: string;
+  isDropset?: boolean;
   distanceInput: string;
   durationInput: string;
   muscleGroups?: MuscleGroupId[];
@@ -157,6 +164,10 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
   sessionFullXp,
   checkedExercises,
   onToggleExerciseCheck,
+  dropsetByExercise = {},
+  onApplyDropsetWeight,
+  onResetDropsetWeight,
+  onSetExerciseInitialWeight,
   repCounter,
   onIncrementRepCounter,
   onResetRepCounter,
@@ -187,6 +198,19 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
   const [editingClockField, setEditingClockField] = useState<'min' | 'sec' | null>(null);
   const [clockFieldDraft, setClockFieldDraft] = useState('');
 
+  // Estado local de Dropset en sesión activa (desplegar/plegar por ejercicio y peso inicial rápido)
+  const [expandedDropsetIds, setExpandedDropsetIds] = useState<Record<string, boolean>>({});
+  const [inlineWeightDrafts, setInlineWeightDrafts] = useState<Record<string, string>>({});
+  const [editingDropExactId, setEditingDropExactId] = useState<string | null>(null);
+  const [exactDropDraft, setExactDropDraft] = useState<string>('');
+
+  useEffect(() => {
+    setExpandedDropsetIds({});
+    setInlineWeightDrafts({});
+    setEditingDropExactId(null);
+    setExactDropDraft('');
+  }, [activeSessionRoutine?.id]);
+
   // Modales: Editor de rutina y Papelera
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [isTrashOpen, setIsTrashOpen] = useState(false);
@@ -202,6 +226,7 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
   const [newExerciseName, setNewExerciseName] = useState('');
   const [newExerciseSets, setNewExerciseSets] = useState('');
   const [newExerciseWeight, setNewExerciseWeight] = useState('');
+  const [newExerciseIsDropset, setNewExerciseIsDropset] = useState(false);
   const [newStageDuration, setNewStageDuration] = useState('');
   const [newStageDistance, setNewStageDistance] = useState('');
   const [newExerciseMuscles, setNewExerciseMuscles] = useState<MuscleGroupId[]>([]);
@@ -257,6 +282,7 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
     setNewExerciseName('');
     setNewExerciseSets('');
     setNewExerciseWeight('');
+    setNewExerciseIsDropset(false);
     setNewStageDuration('');
     setNewStageDistance('');
     setNewExerciseMuscles([]);
@@ -290,6 +316,7 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
         setsReps: ex.setsReps,
         weightInput:
           ex.weightKg !== undefined ? formatMetricNumber(ex.weightKg, language) : '',
+        ...(ex.isDropset ? { isDropset: true } : {}),
         distanceInput:
           ex.distanceKm !== undefined ? formatMetricNumber(ex.distanceKm, language) : '',
         durationInput:
@@ -336,13 +363,14 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
   const buildDraftItemFromNewInputs = (): DraftRoutineExercise | null => {
     const trimmedName = newExerciseName.trim();
     if (!trimmedName) return null;
-    const includeMuscles =
-      categorySupportsMuscles(draftCategory) && newExerciseMuscles.length > 0;
+    const supportsMuscles = categorySupportsMuscles(draftCategory);
+    const includeMuscles = supportsMuscles && newExerciseMuscles.length > 0;
     return {
       id: `ex-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       name: trimmedName,
       setsReps: draftCategory === 'Cardio' ? '' : newExerciseSets.trim(),
       weightInput: draftCategory === 'Cardio' ? '' : newExerciseWeight.trim(),
+      ...(supportsMuscles && newExerciseIsDropset ? { isDropset: true } : {}),
       distanceInput: draftCategory === 'Cardio' ? newStageDistance.trim() : '',
       durationInput: draftCategory === 'Cardio' ? newStageDuration.trim() : '',
       ...(includeMuscles ? { muscleGroups: [...newExerciseMuscles] } : {}),
@@ -382,6 +410,7 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
       name: item.name.trim(),
       setsReps: item.setsReps.trim(),
       ...(weightKg !== undefined ? { weightKg } : {}),
+      ...(supportsMuscles && item.isDropset ? { isDropset: true } : {}),
       ...(supportsMuscles && item.muscleGroups && item.muscleGroups.length > 0
         ? { muscleGroups: [...item.muscleGroups] }
         : {}),
@@ -726,6 +755,18 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
               <div className="divide-y divide-subtle border-y border-subtle">
                 {activeSessionRoutine.exercises.map((exercise) => {
                   const isDone = Boolean(checkedExercises[exercise.id]);
+                  const supportsDropset = !isCardioSession;
+                  const dropsetState = supportsDropset ? dropsetByExercise[exercise.id] : undefined;
+                  const baseWeightKg = exercise.weightKg;
+                  const activeWeightKg =
+                    dropsetState !== undefined ? dropsetState.currentWeightKg : baseWeightKg;
+                  const isDropsetPanelOpen =
+                    supportsDropset &&
+                    Boolean(
+                      expandedDropsetIds[exercise.id] ??
+                        (Boolean(exercise.isDropset) || Boolean(dropsetState))
+                    );
+
                   const muscleLabels =
                     categorySupportsMuscles(activeSessionRoutine.category) &&
                     exercise.muscleGroups &&
@@ -733,7 +774,7 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
                       ? exercise.muscleGroups.map((m) => getLocalizedMuscleLabel(m, t)).join(' · ')
                       : '';
 
-                  const primaryMetricParts: { text: string; emphasize?: boolean }[] = [];
+                  const primaryMetricParts: { text: string; emphasize?: boolean; accent?: boolean }[] = [];
                   if (isCardioSession) {
                     if (exercise.durationMin !== undefined) {
                       primaryMetricParts.push({
@@ -753,10 +794,11 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
                     if (exercise.setsReps.trim() !== '') {
                       primaryMetricParts.push({ text: exercise.setsReps.trim() });
                     }
-                    if (exercise.weightKg !== undefined) {
+                    if (activeWeightKg !== undefined) {
                       primaryMetricParts.push({
-                        text: `${formatMetricNumber(exercise.weightKg, language)} ${t.training_kg_unit}`,
+                        text: `${formatMetricNumber(activeWeightKg, language)} ${t.training_kg_unit}`,
                         emphasize: true,
+                        accent: Boolean(dropsetState),
                       });
                     }
                   }
@@ -764,71 +806,324 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
                   const hasSecondaryLine =
                     primaryMetricParts.length > 0 || muscleLabels.length > 0;
 
+                  const stepDownByDelta = (deltaKg: number) => {
+                    if (baseWeightKg === undefined || activeWeightKg === undefined || !onApplyDropsetWeight) {
+                      return;
+                    }
+                    const nextKg = Math.max(0.5, Math.round((activeWeightKg - deltaKg) * 100) / 100);
+                    if (nextKg === activeWeightKg) return;
+                    onApplyDropsetWeight(exercise.id, baseWeightKg, nextKg);
+                  };
+
+                  const stepDownByTwentyPercent = () => {
+                    if (baseWeightKg === undefined || activeWeightKg === undefined || !onApplyDropsetWeight) {
+                      return;
+                    }
+                    let nextKg = Math.max(0.5, Math.round(activeWeightKg * 0.8 * 2) / 2);
+                    if (nextKg >= activeWeightKg && activeWeightKg > 0.5) {
+                      nextKg = Math.max(0.5, Math.round((activeWeightKg - 0.5) * 100) / 100);
+                    }
+                    if (nextKg === activeWeightKg) return;
+                    onApplyDropsetWeight(exercise.id, baseWeightKg, nextKg);
+                  };
+
+                  const chainWeights =
+                    baseWeightKg !== undefined
+                      ? dropsetState && dropsetState.drops.length > 0
+                        ? [baseWeightKg, ...dropsetState.drops]
+                        : [baseWeightKg]
+                      : [];
+
                   return (
-                    <button
-                      key={exercise.id}
-                      type="button"
-                      onClick={() => onToggleExerciseCheck(exercise.id)}
-                      className="w-full min-h-[54px] py-3 flex items-center gap-3 text-left cursor-pointer"
-                    >
-                      <span
-                        className={`w-5 h-5 rounded-[3px] border flex items-center justify-center transition shrink-0 ${
-                          isDone
-                            ? 'bg-accent-fill border-accent-fill text-accent-fg'
-                            : 'bg-canvas border-strong text-transparent'
-                        }`}
-                      >
-                        <Check className="w-3.5 h-3.5 stroke-[2.75]" />
-                      </span>
-
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
+                    <div key={exercise.id} className="py-3 space-y-2.5">
+                      <div className="flex items-center gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => onToggleExerciseCheck(exercise.id)}
+                          className="min-w-0 flex-1 min-h-[48px] flex items-center gap-3 text-left cursor-pointer"
+                        >
                           <span
-                            className={`text-sm font-medium truncate ${
-                              isDone ? 'line-through text-fg-muted' : 'text-fg'
+                            className={`w-5 h-5 rounded-[3px] border flex items-center justify-center transition shrink-0 ${
+                              isDone
+                                ? 'bg-accent-fill border-accent-fill text-accent-fg'
+                                : 'bg-canvas border-strong text-transparent'
                             }`}
                           >
-                            {exercise.name}
+                            <Check className="w-3.5 h-3.5 stroke-[2.75]" />
                           </span>
-                          <span
-                            className={`text-xs font-mono tabular-nums shrink-0 ${
-                              isDone ? 'text-accent font-semibold' : 'text-fg-muted'
-                            }`}
-                          >
-                            +{perExerciseXp} {t.profile_xp_unit}
-                          </span>
-                        </div>
 
-                        {hasSecondaryLine && (
-                          <div className="flex items-center gap-1.5 text-xs font-mono tabular-nums text-fg-muted mt-0.5 flex-wrap">
-                            {primaryMetricParts.map((part, idx) => (
-                              <React.Fragment key={idx}>
-                                {idx > 0 && <span aria-hidden="true">·</span>}
-                                <span
-                                  className={
-                                    part.emphasize && !isDone
-                                      ? 'text-fg-secondary font-semibold'
-                                      : ''
-                                  }
-                                >
-                                  {part.text}
-                                </span>
-                              </React.Fragment>
-                            ))}
-                            {muscleLabels && (
-                              <>
-                                {primaryMetricParts.length > 0 && (
-                                  <span aria-hidden="true">·</span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <span
+                                className={`text-sm font-medium truncate ${
+                                  isDone ? 'line-through text-fg-muted' : 'text-fg'
+                                }`}
+                              >
+                                {exercise.name}
+                              </span>
+                              <span
+                                className={`text-xs font-mono tabular-nums shrink-0 ${
+                                  isDone ? 'text-accent font-semibold' : 'text-fg-muted'
+                                }`}
+                              >
+                                +{perExerciseXp} {t.profile_xp_unit}
+                              </span>
+                            </div>
+
+                            {hasSecondaryLine && (
+                              <div className="flex items-center gap-1.5 text-xs font-mono tabular-nums text-fg-muted mt-0.5 flex-wrap">
+                                {primaryMetricParts.map((part, idx) => (
+                                  <React.Fragment key={idx}>
+                                    {idx > 0 && <span aria-hidden="true">·</span>}
+                                    <span
+                                      className={
+                                        part.accent && !isDone
+                                          ? 'text-accent font-bold'
+                                          : part.emphasize && !isDone
+                                          ? 'text-fg-secondary font-semibold'
+                                          : ''
+                                      }
+                                    >
+                                      {part.text}
+                                    </span>
+                                  </React.Fragment>
+                                ))}
+                                {muscleLabels && (
+                                  <>
+                                    {primaryMetricParts.length > 0 && (
+                                      <span aria-hidden="true">·</span>
+                                    )}
+                                    <span className="font-sans text-[11px] text-fg-secondary truncate">
+                                      {muscleLabels}
+                                    </span>
+                                  </>
                                 )}
-                                <span className="font-sans text-[11px] text-fg-secondary truncate">
-                                  {muscleLabels}
-                                </span>
-                              </>
+                              </div>
                             )}
                           </div>
+                        </button>
+
+                        {supportsDropset && (onApplyDropsetWeight || onSetExerciseInitialWeight) && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedDropsetIds((prev) => ({
+                                ...prev,
+                                [exercise.id]: !isDropsetPanelOpen,
+                              }))
+                            }
+                            aria-expanded={isDropsetPanelOpen}
+                            className={`min-h-[38px] px-2.5 py-1 rounded-[4px] border font-mono text-[11px] font-semibold flex items-center gap-1 whitespace-nowrap shrink-0 transition cursor-pointer ${
+                              isDropsetPanelOpen || Boolean(dropsetState)
+                                ? 'bg-accent-soft border-accent-fill text-accent'
+                                : 'bg-canvas border-subtle text-fg-secondary hover:bg-elevated'
+                            }`}
+                          >
+                            <TrendingDown className="w-3.5 h-3.5 shrink-0" />
+                            <span>{t.session_dropset_tag}</span>
+                          </button>
                         )}
                       </div>
-                    </button>
+
+                      {isDropsetPanelOpen && (
+                        <div className="rounded-[4px] bg-canvas/85 border border-subtle p-2.5 space-y-2">
+                          {baseWeightKg === undefined ? (
+                            <form
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                if (!onSetExerciseInitialWeight) return;
+                                const rawVal = inlineWeightDrafts[exercise.id] || '';
+                                const parsedKg = parseOptionalPositiveDecimal(rawVal, 0.5, 2000);
+                                if (parsedKg === undefined) return;
+                                onSetExerciseInitialWeight(
+                                  activeSessionRoutine.id,
+                                  exercise.id,
+                                  parsedKg
+                                );
+                                setInlineWeightDrafts((prev) => {
+                                  const { [exercise.id]: _removed, ...rest } = prev;
+                                  return rest;
+                                });
+                              }}
+                              className="flex items-center gap-2"
+                            >
+                              <div className="relative flex-1 min-w-0">
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={inlineWeightDrafts[exercise.id] || ''}
+                                  onChange={(e) =>
+                                    setInlineWeightDrafts((prev) => ({
+                                      ...prev,
+                                      [exercise.id]: sanitizeDecimalDraft(e.target.value),
+                                    }))
+                                  }
+                                  placeholder={t.session_dropset_initial_placeholder}
+                                  aria-label={t.session_dropset_initial_placeholder}
+                                  className="input-field w-full min-h-[38px] pl-3 pr-9 py-1.5 text-xs font-mono tabular-nums placeholder:text-fg-muted"
+                                />
+                                <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 font-mono text-[11px] text-fg-muted">
+                                  {t.training_kg_unit}
+                                </span>
+                              </div>
+                              <button
+                                type="submit"
+                                disabled={
+                                  parseOptionalPositiveDecimal(
+                                    inlineWeightDrafts[exercise.id] || '',
+                                    0.5,
+                                    2000
+                                  ) === undefined
+                                }
+                                className="btn-primary min-h-[38px] px-3 py-1.5 text-xs font-mono whitespace-nowrap shrink-0 disabled:opacity-45 disabled:pointer-events-none"
+                              >
+                                {t.session_dropset_set_btn}
+                              </button>
+                            </form>
+                          ) : (
+                            <>
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <div className="flex items-center gap-1 font-mono text-xs tabular-nums flex-wrap min-w-0">
+                                  {chainWeights.map((w, idx) => {
+                                    const isLast = idx === chainWeights.length - 1;
+                                    if (isLast && editingDropExactId === exercise.id) {
+                                      return (
+                                        <form
+                                          key={`edit-${idx}`}
+                                          onSubmit={(e) => {
+                                            e.preventDefault();
+                                            const parsedExact = parseOptionalPositiveDecimal(
+                                              exactDropDraft,
+                                              0.5,
+                                              2000
+                                            );
+                                            if (parsedExact !== undefined && onApplyDropsetWeight) {
+                                              if (parsedExact === baseWeightKg && !dropsetState) {
+                                                // sin cambios
+                                              } else {
+                                                onApplyDropsetWeight(
+                                                  exercise.id,
+                                                  baseWeightKg,
+                                                  parsedExact
+                                                );
+                                              }
+                                            }
+                                            setEditingDropExactId(null);
+                                          }}
+                                          className="inline-flex items-center gap-1"
+                                        >
+                                          {idx > 0 && (
+                                            <span className="text-fg-muted" aria-hidden="true">
+                                              →
+                                            </span>
+                                          )}
+                                          <input
+                                            type="text"
+                                            inputMode="decimal"
+                                            autoFocus
+                                            value={exactDropDraft}
+                                            onChange={(e) =>
+                                              setExactDropDraft(sanitizeDecimalDraft(e.target.value))
+                                            }
+                                            onBlur={() => {
+                                              const parsedExact = parseOptionalPositiveDecimal(
+                                                exactDropDraft,
+                                                0.5,
+                                                2000
+                                              );
+                                              if (
+                                                parsedExact !== undefined &&
+                                                parsedExact !== activeWeightKg &&
+                                                onApplyDropsetWeight
+                                              ) {
+                                                onApplyDropsetWeight(
+                                                  exercise.id,
+                                                  baseWeightKg,
+                                                  parsedExact
+                                                );
+                                              }
+                                              setEditingDropExactId(null);
+                                            }}
+                                            aria-label={t.training_kg_unit}
+                                            className="input-field w-16 min-h-[30px] px-2 py-0.5 text-center text-xs font-mono text-accent tabular-nums"
+                                          />
+                                          <span className="text-fg-muted">{t.training_kg_unit}</span>
+                                        </form>
+                                      );
+                                    }
+
+                                    return (
+                                      <React.Fragment key={`${idx}-${w}`}>
+                                        {idx > 0 && (
+                                          <span className="text-fg-muted" aria-hidden="true">
+                                            →
+                                          </span>
+                                        )}
+                                        {isLast ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setEditingDropExactId(exercise.id);
+                                              setExactDropDraft(
+                                                formatMetricNumber(w, language)
+                                              );
+                                            }}
+                                            className="px-1.5 py-0.5 rounded-[3px] bg-elevated/70 hover:bg-elevated text-accent font-bold text-sm tabular-nums cursor-pointer transition"
+                                          >
+                                            {formatMetricNumber(w, language)} {t.training_kg_unit}
+                                          </button>
+                                        ) : (
+                                          <span className="text-fg-muted line-through">
+                                            {formatMetricNumber(w, language)}
+                                          </span>
+                                        )}
+                                      </React.Fragment>
+                                    );
+                                  })}
+                                </div>
+
+                                {dropsetState && onResetDropsetWeight && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onResetDropsetWeight(exercise.id)}
+                                    aria-label={t.session_dropset_reset_label}
+                                    className="btn-secondary min-h-[32px] px-2.5 py-1 text-[11px] font-mono flex items-center gap-1 whitespace-nowrap shrink-0 tabular-nums"
+                                  >
+                                    <RotateCcw className="w-3 h-3 text-accent shrink-0" />
+                                    <span>
+                                      {formatMetricNumber(baseWeightKg, language)}{' '}
+                                      {t.training_kg_unit}
+                                    </span>
+                                  </button>
+                                )}
+                              </div>
+
+                              <div className="grid grid-cols-4 gap-1.5">
+                                {[2.5, 5, 10].map((stepKg) => (
+                                  <button
+                                    key={stepKg}
+                                    type="button"
+                                    disabled={activeWeightKg !== undefined && activeWeightKg <= 0.5}
+                                    onClick={() => stepDownByDelta(stepKg)}
+                                    className="btn-secondary min-h-[38px] px-2 py-1 text-xs font-mono font-semibold tabular-nums whitespace-nowrap disabled:opacity-40 disabled:pointer-events-none"
+                                  >
+                                    -{formatMetricNumber(stepKg, language)} {t.training_kg_unit}
+                                  </button>
+                                ))}
+                                <button
+                                  type="button"
+                                  disabled={activeWeightKg !== undefined && activeWeightKg <= 0.5}
+                                  onClick={stepDownByTwentyPercent}
+                                  className="btn-secondary min-h-[38px] px-2 py-1 text-xs font-mono font-semibold text-accent tabular-nums whitespace-nowrap disabled:opacity-40 disabled:pointer-events-none"
+                                >
+                                  -20%
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -1290,49 +1585,67 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
                             </div>
                           </div>
                         ) : (
-                          <div className="grid grid-cols-2 sm:grid-cols-12 gap-2">
-                            <input
-                              type="text"
-                              value={exercise.setsReps}
-                              onChange={(e) =>
-                                handleUpdateDraftExerciseField(exercise.id, {
-                                  setsReps: e.target.value,
-                                })
-                              }
-                              placeholder={t.editor_sets_placeholder}
-                              aria-label={`${exercise.name} ${t.editor_sets_optional_label}`}
-                              className="input-field sm:col-span-4 min-h-[38px] px-3 py-1.5 text-xs font-mono placeholder:text-fg-muted"
-                            />
-
-                            <div className="relative sm:col-span-3">
+                          <div className="space-y-2">
+                            <div className="grid grid-cols-12 gap-2">
                               <input
                                 type="text"
-                                inputMode="decimal"
-                                value={exercise.weightInput}
+                                value={exercise.setsReps}
                                 onChange={(e) =>
                                   handleUpdateDraftExerciseField(exercise.id, {
-                                    weightInput: sanitizeDecimalDraft(e.target.value),
+                                    setsReps: e.target.value,
                                   })
                                 }
-                                placeholder="—"
-                                aria-label={`${exercise.name} ${t.training_kg_unit}`}
-                                className="input-field w-full min-h-[38px] pl-3 pr-8 py-1.5 text-xs font-mono tabular-nums placeholder:text-fg-muted"
+                                placeholder={t.editor_sets_placeholder}
+                                aria-label={`${exercise.name} ${t.editor_sets_optional_label}`}
+                                className="input-field col-span-4 min-h-[38px] px-2.5 py-1.5 text-xs font-mono placeholder:text-fg-muted"
                               />
-                              <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 font-mono text-[11px] text-fg-muted">
-                                {t.training_kg_unit}
-                              </span>
+
+                              <div className="relative col-span-4">
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={exercise.weightInput}
+                                  onChange={(e) =>
+                                    handleUpdateDraftExerciseField(exercise.id, {
+                                      weightInput: sanitizeDecimalDraft(e.target.value),
+                                    })
+                                  }
+                                  placeholder="—"
+                                  aria-label={`${exercise.name} ${t.training_kg_unit}`}
+                                  className="input-field w-full min-h-[38px] pl-2.5 pr-7 py-1.5 text-xs font-mono tabular-nums placeholder:text-fg-muted"
+                                />
+                                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[11px] text-fg-muted">
+                                  {t.training_kg_unit}
+                                </span>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleUpdateDraftExerciseField(exercise.id, {
+                                    isDropset: !exercise.isDropset,
+                                  })
+                                }
+                                aria-pressed={Boolean(exercise.isDropset)}
+                                className={`col-span-4 min-h-[38px] px-2 py-1.5 rounded-[4px] border font-mono text-[11px] font-semibold flex items-center justify-center gap-1 whitespace-nowrap transition cursor-pointer ${
+                                  exercise.isDropset
+                                    ? 'bg-accent-soft border-accent-fill text-accent'
+                                    : 'bg-canvas border-subtle text-fg-secondary hover:bg-elevated'
+                                }`}
+                              >
+                                <TrendingDown className="w-3.5 h-3.5 shrink-0" />
+                                <span>{t.editor_dropset_label}</span>
+                              </button>
                             </div>
 
                             {categorySupportsMuscles(draftCategory) && (
-                              <div className="col-span-2 sm:col-span-5">
-                                <MuscleGroupSelect
-                                  compact
-                                  value={exercise.muscleGroups ?? []}
-                                  onChange={(nextMuscles) =>
-                                    handleUpdateDraftExerciseMuscles(exercise.id, nextMuscles)
-                                  }
-                                />
-                              </div>
+                              <MuscleGroupSelect
+                                compact
+                                value={exercise.muscleGroups ?? []}
+                                onChange={(nextMuscles) =>
+                                  handleUpdateDraftExerciseMuscles(exercise.id, nextMuscles)
+                                }
+                              />
                             )}
                           </div>
                         )}
@@ -1487,6 +1800,23 @@ export const TrainingView: React.FC<TrainingViewProps> = React.memo(({
                           </div>
                         </div>
                       </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setNewExerciseIsDropset((prev) => !prev)}
+                        aria-pressed={newExerciseIsDropset}
+                        className={`w-full min-h-[38px] px-3 py-1.5 rounded-[4px] border font-mono text-xs font-semibold flex items-center justify-between gap-2 transition cursor-pointer ${
+                          newExerciseIsDropset
+                            ? 'bg-accent-soft border-accent-fill text-accent'
+                            : 'bg-canvas border-subtle text-fg-secondary hover:bg-elevated'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <TrendingDown className="w-3.5 h-3.5 shrink-0" />
+                          <span>{t.editor_dropset_label}</span>
+                        </span>
+                        {newExerciseIsDropset && <Check className="w-3.5 h-3.5 shrink-0" />}
+                      </button>
 
                       {categorySupportsMuscles(draftCategory) && (
                         <MuscleGroupSelect

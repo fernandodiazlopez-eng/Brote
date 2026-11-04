@@ -35,8 +35,14 @@ import { ProfileView } from './components/ProfileView';
 import { StatsView } from './components/StatsView';
 import { TrainingView } from './components/TrainingView';
 import { TrophyUnlockBanner } from './components/TrophyUnlockBanner';
-import { BugDialogueCategory, pickBugPhrase } from './data/bugCompanionData';
+import {
+  BugDialogueCategory,
+  DEFAULT_BUG_HAT_COLORS,
+  pickBugPhrase,
+  sanitizeRgbColor,
+} from './data/bugCompanionData';
 import { findNewlyUnlockedTrophies } from './data/trophiesCatalog';
+import { useMediaPlaybackDetection } from './hooks/useMediaPlaybackDetection';
 import { useMobileStepSensor } from './hooks/useMobileStepSensor';
 import { I18nContext, I18nContextValue } from './i18n/I18nContext';
 import {
@@ -51,11 +57,15 @@ import {
   AppLanguage,
   AppPersistentState,
   AppTab,
+  BugHatId,
+  BugMusicMode,
   BugUnlockMilestone,
   CompletedWorkout,
   CustomBugPhrase,
   DailyActivityRecord,
+  ExerciseDropsetSessionState,
   MuscleGroupId,
+  RgbColor,
   Routine,
   RoutineCategory,
   ThemeMode,
@@ -111,6 +121,12 @@ function formatCompactClock(totalSeconds: number): string {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
+/** Horario nocturno de sueño de Bug: desde las 22:00 hasta las 06:00 de la mañana. */
+function checkIsBugSleepHours(): boolean {
+  const hour = new Date().getHours();
+  return hour >= 22 || hour < 6;
+}
+
 export default function App() {
   const [todayIso, setTodayIso] = useState<string>(() => getTodayDateIso());
   const [appState, setAppState] = useState<AppPersistentState>(loadAppStateFromStorage);
@@ -150,7 +166,9 @@ export default function App() {
   const [bugMarquee, setBugMarquee] = useState<{ id: number; text: string } | null>(null);
   const [trophyCelebrateToken, setTrophyCelebrateToken] = useState<number>(0);
   const [scrollTopHopToken, setScrollTopHopToken] = useState<number>(0);
+  const [fastScrollUpToken, setFastScrollUpToken] = useState<number>(0);
   const [tabTeleportToken, setTabTeleportToken] = useState<number>(0);
+  const [isSleepHours, setIsSleepHours] = useState<boolean>(checkIsBugSleepHours);
   const bugMoodTimersRef = useRef<number[]>([]);
   const lastBugPhraseRef = useRef<string | null>(null);
   const nextBugMsgIdRef = useRef<number>(0);
@@ -164,6 +182,8 @@ export default function App() {
           document.visibilityState === 'hidden' ? 'true' : 'false';
         if (document.visibilityState === 'hidden') return;
       }
+
+      setIsSleepHours(checkIsBugSleepHours());
 
       const realToday = getTodayDateIso();
       setTodayIso((prevToday) => {
@@ -219,8 +239,26 @@ export default function App() {
     Boolean(appState.bugPetUnlockedAtIso) || currentLevel >= 4 || peakLevel >= 4;
   const isBugHockeyUnlocked =
     Boolean(appState.bugHockeyUnlockedAtIso) || currentLevel >= 5 || peakLevel >= 5;
+  const isBugCustomizationUnlocked =
+    Boolean(appState.bugCustomizationUnlockedAtIso) || currentLevel >= 25 || peakLevel >= 25;
   const hideBug = Boolean(appState.hideBug);
   const showBug = isBugUnlocked && !hideBug;
+
+  const bugMusicMode: BugMusicMode = appState.bugMusicMode ?? 'auto';
+  const isMusicPlaying = useMediaPlaybackDetection(bugMusicMode);
+
+  const equippedHat: BugHatId = isBugCustomizationUnlocked
+    ? appState.bugSelectedHat ?? 'none'
+    : 'none';
+  const equippedHatColor = useMemo<RgbColor>(() => {
+    if (equippedHat === 'bow') {
+      return sanitizeRgbColor(appState.bugHatColors?.bow, DEFAULT_BUG_HAT_COLORS.bow);
+    }
+    return sanitizeRgbColor(
+      appState.bugHatColors?.headphones,
+      DEFAULT_BUG_HAT_COLORS.headphones
+    );
+  }, [equippedHat, appState.bugHatColors?.bow, appState.bugHatColors?.headphones]);
 
   const wasBugUnlockedOnMountRef = useRef<boolean | null>(null);
   if (wasBugUnlockedOnMountRef.current === null) {
@@ -265,6 +303,7 @@ export default function App() {
 
   const triggerBugQuickReaction = useCallback(
     (lang: AppLanguage) => {
+      if (checkIsBugSleepHours()) return;
       clearBugMoodTimers();
       setBugMood('happy');
       const calmId = window.setTimeout(() => {
@@ -385,18 +424,20 @@ export default function App() {
     setTrophyQueue((prev) => prev.slice(1));
   }, []);
 
-  // --- 4B. Desbloqueos de Bug (Nivel 3: Mascota · Nivel 4: Acariciar · Nivel 5: Jugar / Lanzar) y saludo al abrir ---
+  // --- 4B. Desbloqueos de Bug (Nivel 3: Mascota · Nivel 4: Acariciar · Nivel 5: Jugar · Nivel 25: Personalización) y saludo al abrir ---
   useEffect(() => {
     if (!appState.hasSelectedInitialLanguage) return;
 
     const reachedLvl3 = currentLevel >= 3 || peakLevel >= 3;
     const reachedLvl4 = currentLevel >= 4 || peakLevel >= 4;
     const reachedLvl5 = currentLevel >= 5 || peakLevel >= 5;
+    const reachedLvl25 = currentLevel >= 25 || peakLevel >= 25;
     const needLvl3 = reachedLvl3 && !appState.bugUnlockedAtIso;
     const needLvl4 = reachedLvl4 && !appState.bugPetUnlockedAtIso;
     const needLvl5 = reachedLvl5 && !appState.bugHockeyUnlockedAtIso;
+    const needLvl25 = reachedLvl25 && !appState.bugCustomizationUnlockedAtIso;
 
-    if (!needLvl3 && !needLvl4 && !needLvl5) return;
+    if (!needLvl3 && !needLvl4 && !needLvl5 && !needLvl25) return;
 
     setAppState((prev) => ({
       ...prev,
@@ -405,6 +446,9 @@ export default function App() {
       ...(needLvl5 && !prev.bugHockeyUnlockedAtIso
         ? { bugHockeyUnlockedAtIso: todayIso }
         : {}),
+      ...(needLvl25 && !prev.bugCustomizationUnlockedAtIso
+        ? { bugCustomizationUnlockedAtIso: todayIso }
+        : {}),
     }));
 
     setBugMilestoneQueue((prev) => {
@@ -412,6 +456,7 @@ export default function App() {
       if (needLvl3 && !next.includes('level3')) next.push('level3');
       if (needLvl4 && !next.includes('level4')) next.push('level4');
       if (needLvl5 && !next.includes('level5')) next.push('level5');
+      if (needLvl25 && !next.includes('level25')) next.push('level25');
       return next;
     });
   }, [
@@ -419,6 +464,7 @@ export default function App() {
     appState.bugUnlockedAtIso,
     appState.bugPetUnlockedAtIso,
     appState.bugHockeyUnlockedAtIso,
+    appState.bugCustomizationUnlockedAtIso,
     currentLevel,
     peakLevel,
     todayIso,
@@ -426,7 +472,7 @@ export default function App() {
 
   useEffect(() => {
     if (!currentBugBanner) return;
-    playBugUnlockSound(currentBugBanner === 'level5');
+    playBugUnlockSound(currentBugBanner === 'level5' || currentBugBanner === 'level25');
 
     const timerId = window.setTimeout(() => {
       setBugMilestoneQueue((prev) => prev.slice(1));
@@ -444,6 +490,7 @@ export default function App() {
     didTriggerOpenGreetingRef.current = true;
 
     if (!wasBugUnlockedOnMountRef.current || appState.hideBug) return;
+    if (checkIsBugSleepHours()) return;
 
     const isAfterMultiDayInactivity =
       appState.settledInactiveDays >= 2 &&
@@ -490,6 +537,9 @@ export default function App() {
   const [checkedExercises, setCheckedExercises] = useState<Record<string, boolean>>(
     initialSession.checkedExercises
   );
+  const [dropsetByExercise, setDropsetByExercise] = useState<
+    Record<string, ExerciseDropsetSessionState>
+  >(() => initialSession.dropsetByExercise ?? {});
   const [repCounter, setRepCounter] = useState<number>(initialSession.repCounter);
 
   const [clockMode, setClockMode] = useState<WorkoutClockMode>(initialSession.clockMode);
@@ -542,13 +592,22 @@ export default function App() {
     };
   }, []);
 
-  // Saltito de Bug al subir la aplicación hasta el tope o tirar suavemente arriba del todo
+  // Saltito de Bug al subir hasta el tope + detección de subida rápida de pantalla (para despertarlo confundido de noche)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     let hadScrolledDown = window.scrollY > 24;
     let lastHopAtMs = 0;
+    let lastFastScrollAtMs = 0;
+    let lastScrollY = window.scrollY;
+    let lastScrollPerf = performance.now();
+    let upwardBurstPx = 0;
+    let upwardBurstStartPerf = 0;
+
     let pullStartY: number | null = null;
     let pullTriggered = false;
+    let swipeStartY: number | null = null;
+    let swipeStartPerf = 0;
+    let swipeFastTriggered = false;
 
     const triggerTopHop = () => {
       const now = Date.now();
@@ -557,8 +616,36 @@ export default function App() {
       setScrollTopHopToken((n) => n + 1);
     };
 
+    const triggerFastScrollUp = () => {
+      const now = Date.now();
+      if (now - lastFastScrollAtMs < 900) return;
+      lastFastScrollAtMs = now;
+      setFastScrollUpToken((n) => n + 1);
+    };
+
     const handleScroll = () => {
       const y = window.scrollY;
+      const nowPerf = performance.now();
+      const deltaUp = lastScrollY - y;
+
+      if (deltaUp > 0) {
+        if (nowPerf - lastScrollPerf > 180 || upwardBurstPx === 0) {
+          upwardBurstPx = deltaUp;
+          upwardBurstStartPerf = nowPerf;
+        } else {
+          upwardBurstPx += deltaUp;
+        }
+        if (upwardBurstPx >= 52 && nowPerf - upwardBurstStartPerf <= 260) {
+          upwardBurstPx = 0;
+          triggerFastScrollUp();
+        }
+      } else if (deltaUp < 0) {
+        upwardBurstPx = 0;
+      }
+
+      lastScrollY = y;
+      lastScrollPerf = nowPerf;
+
       if (y > 24) {
         hadScrolledDown = true;
       } else if (y <= 2 && hadScrolledDown) {
@@ -568,22 +655,44 @@ export default function App() {
     };
 
     const handleTouchStart = (e: TouchEvent) => {
-      if (window.scrollY <= 2 && e.touches.length === 1) {
-        pullStartY = e.touches[0].clientY;
-        pullTriggered = false;
+      if (e.touches.length === 1) {
+        swipeStartY = e.touches[0].clientY;
+        swipeStartPerf = performance.now();
+        swipeFastTriggered = false;
+        if (window.scrollY <= 2) {
+          pullStartY = e.touches[0].clientY;
+          pullTriggered = false;
+        } else {
+          pullStartY = null;
+          pullTriggered = false;
+        }
       } else {
         pullStartY = null;
         pullTriggered = false;
+        swipeStartY = null;
+        swipeFastTriggered = false;
       }
     };
 
     const handleTouchMove = (e: TouchEvent) => {
-      if (pullStartY === null || pullTriggered || e.touches.length !== 1) return;
+      if (e.touches.length !== 1) return;
+      const curY = e.touches[0].clientY;
+
+      if (swipeStartY !== null && !swipeFastTriggered) {
+        const elapsed = performance.now() - swipeStartPerf;
+        const dySwipe = curY - swipeStartY;
+        if (Math.abs(dySwipe) >= 64 && elapsed <= 190) {
+          swipeFastTriggered = true;
+          triggerFastScrollUp();
+        }
+      }
+
+      if (pullStartY === null || pullTriggered) return;
       if (window.scrollY > 4) {
         pullStartY = null;
         return;
       }
-      const dy = e.touches[0].clientY - pullStartY;
+      const dy = curY - pullStartY;
       if (dy >= 34) {
         pullTriggered = true;
         triggerTopHop();
@@ -593,6 +702,8 @@ export default function App() {
     const clearPull = () => {
       pullStartY = null;
       pullTriggered = false;
+      swipeStartY = null;
+      swipeFastTriggered = false;
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
@@ -695,6 +806,7 @@ export default function App() {
     isSessionViewOpen,
     sessionOriginTab,
     checkedExercises,
+    dropsetByExercise,
     repCounter,
     clockMode,
     stopwatchAccumMs,
@@ -736,6 +848,7 @@ export default function App() {
     isSessionViewOpen,
     sessionOriginTab,
     checkedExercises,
+    dropsetByExercise,
     repCounter,
     clockMode,
     stopwatchAccumMs,
@@ -1068,6 +1181,7 @@ export default function App() {
       if (sessionRoutineId !== routineId) {
         setSessionRoutineId(routineId);
         setCheckedExercises({});
+        setDropsetByExercise({});
         setRepCounter(0);
         setStopwatchStartMs(null);
         setStopwatchAccumMs(0);
@@ -1095,11 +1209,17 @@ export default function App() {
     [checkedExercises]
   );
 
+  const hasDropsetActivity = useMemo(
+    () => Object.keys(dropsetByExercise).length > 0,
+    [dropsetByExercise]
+  );
+
   const hasSessionProgress =
     isAnyClockRunning ||
     stopwatchAccumMs > 0 ||
     repCounter > 0 ||
     hasCheckedAnyExercise ||
+    hasDropsetActivity ||
     countdownRemMs < countdownTargetSec * 1000;
 
   const handleExitSessionView = useCallback(() => {
@@ -1120,6 +1240,54 @@ export default function App() {
       [exerciseId]: !prev[exerciseId],
     }));
   }, []);
+
+  const handleApplyDropsetWeight = useCallback(
+    (exerciseId: string, baseWeightKg: number, nextWeightKg: number) => {
+      const safeNext = Math.max(0.5, Math.min(2000, Math.round(nextWeightKg * 100) / 100));
+      setDropsetByExercise((prev) => {
+        const existing = prev[exerciseId];
+        if (!existing && safeNext === baseWeightKg) {
+          return prev;
+        }
+        const nextDrops = existing ? [...existing.drops, safeNext].slice(-12) : [safeNext];
+        return {
+          ...prev,
+          [exerciseId]: {
+            currentWeightKg: safeNext,
+            drops: nextDrops,
+          },
+        };
+      });
+    },
+    []
+  );
+
+  const handleResetDropsetWeight = useCallback((exerciseId: string) => {
+    setDropsetByExercise((prev) => {
+      if (!(exerciseId in prev)) return prev;
+      const { [exerciseId]: _removed, ...rest } = prev;
+      return rest;
+    });
+  }, []);
+
+  const handleSetExerciseInitialWeight = useCallback(
+    (routineId: string, exerciseId: string, weightKg: number) => {
+      const safeWeight = Math.max(0.5, Math.min(2000, Math.round(weightKg * 100) / 100));
+      setAppState((prev) => ({
+        ...prev,
+        routines: prev.routines.map((routine) => {
+          if (routine.id !== routineId) return routine;
+          return {
+            ...routine,
+            exercises: routine.exercises.map((ex) =>
+              ex.id === exerciseId ? { ...ex, weightKg: safeWeight, isDropset: true } : ex
+            ),
+          };
+        }),
+      }));
+    },
+    []
+  );
 
   const handleIncrementRepCounter = useCallback(() => {
     setRepCounter((prev) => (prev >= 99 ? 0 : prev + 1));
@@ -1229,6 +1397,7 @@ export default function App() {
     setCountdownEndMs(null);
     setCountdownRemMs(countdownTargetSec * 1000);
     setCheckedExercises({});
+    setDropsetByExercise({});
     setRepCounter(0);
     setSessionRoutineId(null);
     setIsSessionViewOpen(false);
@@ -1366,6 +1535,7 @@ export default function App() {
         setStopwatchAccumMs(0);
         setCountdownEndMs(null);
         setCheckedExercises({});
+        setDropsetByExercise({});
         setRepCounter(0);
         setSessionRoutineId(null);
         setIsSessionViewOpen(false);
@@ -1735,6 +1905,7 @@ export default function App() {
     setCountdownEndMs(null);
     setCountdownRemMs(countdownTargetSec * 1000);
     setCheckedExercises({});
+    setDropsetByExercise({});
     setRepCounter(0);
     setSessionRoutineId(null);
     setIsSessionViewOpen(false);
@@ -1877,6 +2048,37 @@ export default function App() {
       muteBugBounceSound: nextMute,
     }));
   }, []);
+
+  const handleChangeBugMusicMode = useCallback((nextMode: BugMusicMode) => {
+    setAppState((prev) => ({
+      ...prev,
+      bugMusicMode: nextMode,
+    }));
+  }, []);
+
+  const handleChangeBugSelectedHat = useCallback((nextHat: BugHatId) => {
+    setAppState((prev) => ({
+      ...prev,
+      bugSelectedHat: nextHat,
+    }));
+  }, []);
+
+  const handleChangeBugHatColor = useCallback(
+    (hat: Exclude<BugHatId, 'none'>, color: RgbColor) => {
+      const sanitized = sanitizeRgbColor(
+        color,
+        hat === 'bow' ? DEFAULT_BUG_HAT_COLORS.bow : DEFAULT_BUG_HAT_COLORS.headphones
+      );
+      setAppState((prev) => ({
+        ...prev,
+        bugHatColors: {
+          ...prev.bugHatColors,
+          [hat]: sanitized,
+        },
+      }));
+    },
+    []
+  );
 
   const handleAddCustomBugPhrase = useCallback(
     (category: BugDialogueCategory, rawText: string) => {
@@ -2059,15 +2261,27 @@ export default function App() {
       isAlarmRinging,
       trophyCelebrateToken,
       scrollTopHopToken,
+      fastScrollUpToken,
       tabTeleportToken,
       muteBounceSound: Boolean(appState.muteBugBounceSound),
+      isSleepHours,
+      isMusicPlaying,
+      musicMode: bugMusicMode,
+      equippedHat,
+      equippedHatColor,
     }),
     [
       isAlarmRinging,
       trophyCelebrateToken,
       scrollTopHopToken,
+      fastScrollUpToken,
       tabTeleportToken,
       appState.muteBugBounceSound,
+      isSleepHours,
+      isMusicPlaying,
+      bugMusicMode,
+      equippedHat,
+      equippedHatColor,
     ]
   );
 
@@ -2285,6 +2499,10 @@ export default function App() {
               sessionFullXp={sessionFullXp}
               checkedExercises={checkedExercises}
               onToggleExerciseCheck={handleToggleExerciseCheck}
+              dropsetByExercise={dropsetByExercise}
+              onApplyDropsetWeight={handleApplyDropsetWeight}
+              onResetDropsetWeight={handleResetDropsetWeight}
+              onSetExerciseInitialWeight={handleSetExerciseInitialWeight}
               repCounter={repCounter}
               onIncrementRepCounter={handleIncrementRepCounter}
               onResetRepCounter={handleResetRepCounter}
@@ -2350,12 +2568,19 @@ export default function App() {
               onExportBackup={handleExportBackup}
               onImportBackupJson={handleImportBackupJson}
               isBugUnlocked={isBugUnlocked}
+              isBugCustomizationUnlocked={isBugCustomizationUnlocked}
               hideBug={hideBug}
               onChangeHideBug={handleChangeHideBug}
               muteBugText={Boolean(appState.muteBugText)}
               onChangeMuteBugText={handleChangeMuteBugText}
               muteBugBounceSound={Boolean(appState.muteBugBounceSound)}
               onChangeMuteBugBounceSound={handleChangeMuteBugBounceSound}
+              bugMusicMode={bugMusicMode}
+              onChangeBugMusicMode={handleChangeBugMusicMode}
+              bugSelectedHat={appState.bugSelectedHat ?? 'none'}
+              onChangeBugSelectedHat={handleChangeBugSelectedHat}
+              bugHatColors={appState.bugHatColors}
+              onChangeBugHatColor={handleChangeBugHatColor}
               deletedBugPhraseKeys={appState.deletedBugPhraseKeys?.[appState.language] || []}
               customBugPhrases={appState.customBugPhrases?.[appState.language] || []}
               onAddCustomBugPhrase={handleAddCustomBugPhrase}

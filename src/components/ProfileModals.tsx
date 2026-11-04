@@ -16,8 +16,10 @@ import {
   Compass,
   Download,
   Globe,
+  Lock,
   MessageSquare,
   Moon,
+  Music,
   Palette,
   Plus,
   RotateCcw,
@@ -31,14 +33,24 @@ import {
   Volume2,
   X,
 } from 'lucide-react';
-import { isBugDefaultPhraseKey } from '../data/bugCompanionData';
+import {
+  clampRgbByte,
+  DEFAULT_BUG_HAT_COLORS,
+  formatRgbCode,
+  isBugDefaultPhraseKey,
+  parseRgbCodeInput,
+  sanitizeRgbColor,
+} from '../data/bugCompanionData';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { useI18n } from '../i18n/I18nContext';
 import { UI_TEXT_SECTIONS, UiTextFieldMeta, UiTextKey } from '../i18n/translations';
 import {
   AccentPaletteId,
   BugDialogueCategory,
+  BugHatId,
+  BugMusicMode,
   CustomBugPhrase,
+  RgbColor,
   ThemeMode,
   XpFormulas,
 } from '../types';
@@ -339,12 +351,19 @@ interface ProfileSettingsModalProps {
   onExportBackup: () => void;
   onImportBackupJson: (rawText: string) => boolean;
   isBugUnlocked?: boolean;
+  isBugCustomizationUnlocked?: boolean;
   hideBug?: boolean;
   onChangeHideBug?: (hide: boolean) => void;
   muteBugText?: boolean;
   onChangeMuteBugText?: (mute: boolean) => void;
   muteBugBounceSound?: boolean;
   onChangeMuteBugBounceSound?: (mute: boolean) => void;
+  bugMusicMode?: BugMusicMode;
+  onChangeBugMusicMode?: (mode: BugMusicMode) => void;
+  bugSelectedHat?: BugHatId;
+  onChangeBugSelectedHat?: (hat: BugHatId) => void;
+  bugHatColors?: Partial<Record<Exclude<BugHatId, 'none'>, RgbColor>>;
+  onChangeBugHatColor?: (hat: Exclude<BugHatId, 'none'>, color: RgbColor) => void;
   deletedBugPhraseKeys?: string[];
   customBugPhrases?: CustomBugPhrase[];
   onAddCustomBugPhrase?: (category: BugDialogueCategory, text: string) => void;
@@ -373,12 +392,19 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   onExportBackup,
   onImportBackupJson,
   isBugUnlocked = false,
+  isBugCustomizationUnlocked = false,
   hideBug = false,
   onChangeHideBug,
   muteBugText = false,
   onChangeMuteBugText,
   muteBugBounceSound = false,
   onChangeMuteBugBounceSound,
+  bugMusicMode = 'auto',
+  onChangeBugMusicMode,
+  bugSelectedHat = 'none',
+  onChangeBugSelectedHat,
+  bugHatColors,
+  onChangeBugHatColor,
   deletedBugPhraseKeys = [],
   customBugPhrases = [],
   onAddCustomBugPhrase,
@@ -407,8 +433,11 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const [showIOSInstallGuide, setShowIOSInstallGuide] = useState(false);
 
-  const [settingsSection, setSettingsSection] = useState<'main' | 'advanced' | 'texts'>('main');
+  const [settingsSection, setSettingsSection] = useState<'main' | 'bug' | 'advanced' | 'texts'>(
+    'main'
+  );
   const [textSearchQuery, setTextSearchQuery] = useState('');
+  const [bugPhraseSearchQuery, setBugPhraseSearchQuery] = useState('');
   const [newBugPhraseCategory, setNewBugPhraseCategory] = useState<BugDialogueCategory>('streak');
   const [newBugPhraseDraft, setNewBugPhraseDraft] = useState('');
   const [backupFeedback, setBackupFeedback] = useState<'success' | 'error' | null>(null);
@@ -419,6 +448,33 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
     (customAccentHex || '#c8ff00').toUpperCase()
   );
   const [showCustomHexError, setShowCustomHexError] = useState(false);
+
+  const resolvedHeadphonesColor = useMemo(
+    () => sanitizeRgbColor(bugHatColors?.headphones, DEFAULT_BUG_HAT_COLORS.headphones),
+    [bugHatColors?.headphones]
+  );
+  const resolvedBowColor = useMemo(
+    () => sanitizeRgbColor(bugHatColors?.bow, DEFAULT_BUG_HAT_COLORS.bow),
+    [bugHatColors?.bow]
+  );
+
+  const editableHatId: Exclude<BugHatId, 'none'> | null =
+    isBugCustomizationUnlocked && (bugSelectedHat === 'headphones' || bugSelectedHat === 'bow')
+      ? bugSelectedHat
+      : null;
+
+  const activeEditableHatRgb =
+    editableHatId === 'bow' ? resolvedBowColor : resolvedHeadphonesColor;
+
+  const [rgbCodeDraft, setRgbCodeDraft] = useState<string>(() =>
+    formatRgbCode(activeEditableHatRgb)
+  );
+  const [showRgbError, setShowRgbError] = useState<boolean>(false);
+
+  useEffect(() => {
+    setRgbCodeDraft(formatRgbCode(activeEditableHatRgb));
+    setShowRgbError(false);
+  }, [editableHatId, activeEditableHatRgb.r, activeEditableHatRgb.g, activeEditableHatRgb.b]);
 
   const localizedExternalFormulas = useMemo(
     () => localizeXpFormulasIfDefault(xpFormulas, language),
@@ -442,10 +498,12 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
     if (isOpen) {
       setSettingsSection('main');
       setTextSearchQuery('');
+      setBugPhraseSearchQuery('');
       setNewBugPhraseDraft('');
       setShowIOSInstallGuide(false);
       setBackupFeedback(null);
       setShowCustomHexError(false);
+      setShowRgbError(false);
       setDraftCustomHex((customAccentHex || '#c8ff00').toUpperCase());
     }
   }, [isOpen, customAccentHex]);
@@ -461,7 +519,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
       if (e.key !== 'Escape') return;
       if (settingsSection === 'texts') {
         setSettingsSection('advanced');
-      } else if (settingsSection === 'advanced') {
+      } else if (settingsSection === 'advanced' || settingsSection === 'bug') {
         setSettingsSection('main');
       } else {
         onClose();
@@ -512,29 +570,39 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   );
 
   const filteredCustomBugPhrases = useMemo(() => {
-    const q = textSearchQuery.trim().toLowerCase();
+    const q = bugPhraseSearchQuery.trim().toLowerCase();
     if (!q) return customBugPhrases;
     return customBugPhrases.filter((p) => p.text.toLowerCase().includes(q));
-  }, [customBugPhrases, textSearchQuery]);
+  }, [customBugPhrases, bugPhraseSearchQuery]);
+
+  const bugDefaultPhraseFields = useMemo(() => {
+    const bugSection = UI_TEXT_SECTIONS.find((section) => section.id === 'bug_phrases');
+    if (!bugSection) return [];
+    const activeFields = bugSection.fields.filter((f) => !deletedBugKeysSet.has(f.key));
+    const q = bugPhraseSearchQuery.trim().toLowerCase();
+    if (!q) return activeFields;
+    return activeFields.filter((field) => {
+      const metaLabel = language === 'en' ? field.labelEn : field.labelEs;
+      const currentText = t[field.key];
+      const defaultText = defaultT[field.key];
+      return (
+        metaLabel.toLowerCase().includes(q) ||
+        currentText.toLowerCase().includes(q) ||
+        defaultText.toLowerCase().includes(q)
+      );
+    });
+  }, [deletedBugKeysSet, bugPhraseSearchQuery, language, t, defaultT]);
 
   const filteredTextSections = useMemo(() => {
-    const baseSections = isBugUnlocked
-      ? UI_TEXT_SECTIONS.map((section) =>
-          section.id === 'bug_phrases'
-            ? {
-                ...section,
-                fields: section.fields.filter((f) => !deletedBugKeysSet.has(f.key)),
-              }
-            : section
-        )
-      : UI_TEXT_SECTIONS.filter((section) => section.id !== 'bug_phrases').map((section) =>
-          section.id === 'settings'
-            ? {
-                ...section,
-                fields: section.fields.filter((f) => !f.key.startsWith('settings_bug_')),
-              }
-            : section
-        );
+    const baseSections = UI_TEXT_SECTIONS.filter((section) => section.id !== 'bug_phrases').map(
+      (section) =>
+        !isBugUnlocked && section.id === 'settings'
+          ? {
+              ...section,
+              fields: section.fields.filter((f) => !f.key.startsWith('settings_bug_')),
+            }
+          : section
+    );
 
     const normalizedQuery = textSearchQuery.trim().toLowerCase();
     if (!normalizedQuery) return baseSections;
@@ -556,20 +624,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
           fields: matchingFields,
         };
       })
-      .filter(
-        (section) =>
-          section.fields.length > 0 ||
-          (section.id === 'bug_phrases' && filteredCustomBugPhrases.length > 0)
-      );
-  }, [
-    isBugUnlocked,
-    deletedBugKeysSet,
-    textSearchQuery,
-    language,
-    t,
-    defaultT,
-    filteredCustomBugPhrases.length,
-  ]);
+      .filter((section) => section.fields.length > 0);
+  }, [isBugUnlocked, textSearchQuery, language, t, defaultT]);
 
   if (!isOpen) return null;
 
@@ -696,9 +752,48 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const modalTitle =
     settingsSection === 'main'
       ? t.settings_title
+      : settingsSection === 'bug'
+      ? t.settings_bug_label
       : settingsSection === 'advanced'
       ? t.settings_advanced_btn
       : t.advanced_texts_heading;
+
+  const equippedPreviewHat: BugHatId = isBugCustomizationUnlocked ? bugSelectedHat : 'none';
+  const equippedPreviewHatColor: RgbColor =
+    equippedPreviewHat === 'bow' ? resolvedBowColor : resolvedHeadphonesColor;
+
+  const handleApplyRgbDraft = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!editableHatId || !onChangeBugHatColor) return;
+    const parsed = parseRgbCodeInput(rgbCodeDraft);
+    if (!parsed) {
+      setShowRgbError(true);
+      return;
+    }
+    setShowRgbError(false);
+    setRgbCodeDraft(formatRgbCode(parsed));
+    onChangeBugHatColor(editableHatId, parsed);
+  };
+
+  const handleUpdateRgbChannel = (channel: 'r' | 'g' | 'b', rawVal: string) => {
+    if (!editableHatId || !onChangeBugHatColor) return;
+    const digits = rawVal.replace(/\D/g, '').slice(0, 3);
+    const numeric = digits === '' ? 0 : clampRgbByte(Number.parseInt(digits, 10));
+    const nextColor: RgbColor = {
+      ...activeEditableHatRgb,
+      [channel]: numeric,
+    };
+    setShowRgbError(false);
+    setRgbCodeDraft(formatRgbCode(nextColor));
+    onChangeBugHatColor(editableHatId, nextColor);
+  };
+
+  const getBugCategoryLabel = (cat: BugDialogueCategory) =>
+    cat === 'streak'
+      ? t.settings_bug_cat_streak
+      : cat === 'inactive'
+      ? t.settings_bug_cat_inactive
+      : t.settings_bug_cat_reaction;
 
   return (
     <div
@@ -870,124 +965,33 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               </div>
             </div>
 
-            {/* Visibilidad y audio/texto de Bug (aparece únicamente tras desbloquearlo en Nivel 3) */}
-            {isBugUnlocked && onChangeHideBug && (
-              <div className="space-y-3 pt-1">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-1.5">
+            {/* Acceso directo a Personalizar Bug (aparece tras desbloquear a Bug en Nivel 3) */}
+            {isBugUnlocked && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => setSettingsSection('bug')}
+                  className="btn-secondary w-full min-h-[48px] px-3.5 py-2.5 flex items-center justify-between gap-3 text-left"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
                     <svg
-                      viewBox="0 0 16 14"
-                      className="w-3.5 h-3 shrink-0"
+                      viewBox="-2 -6 20 20"
+                      className="w-6 h-6 shrink-0 overflow-visible"
                       shapeRendering="crispEdges"
                       aria-hidden="true"
                     >
-                      <BugPixelGraphic expression="neutral" />
+                      <BugPixelGraphic
+                        expression="happy"
+                        hat={equippedPreviewHat}
+                        hatColor={equippedPreviewHatColor}
+                      />
                     </svg>
-                    <p className="font-display text-xs font-semibold uppercase tracking-wider text-fg-secondary">
+                    <span className="text-sm font-semibold text-fg truncate">
                       {t.settings_bug_label}
-                    </p>
+                    </span>
                   </div>
-
-                  <div
-                    role="group"
-                    aria-label={t.settings_bug_label}
-                    className="seg-group grid grid-cols-2 gap-1"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => onChangeHideBug(false)}
-                      aria-pressed={!hideBug}
-                      className={`seg-btn min-h-[40px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
-                        !hideBug ? 'seg-btn-active' : ''
-                      }`}
-                    >
-                      {t.settings_bug_show}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => onChangeHideBug(true)}
-                      aria-pressed={hideBug}
-                      className={`seg-btn min-h-[40px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
-                        hideBug ? 'seg-btn-active' : ''
-                      }`}
-                    >
-                      {t.settings_bug_hide}
-                    </button>
-                  </div>
-                </div>
-
-                {onChangeMuteBugText && (
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-1.5 text-xs text-fg">
-                      <MessageSquare className="w-3.5 h-3.5 text-accent shrink-0" />
-                      <span className="font-semibold">{t.settings_bug_text_label}</span>
-                    </div>
-                    <div
-                      role="group"
-                      aria-label={t.settings_bug_text_label}
-                      className="seg-group grid grid-cols-2 gap-1"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => onChangeMuteBugText(false)}
-                        aria-pressed={!muteBugText}
-                        className={`seg-btn min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
-                          !muteBugText ? 'seg-btn-active' : ''
-                        }`}
-                      >
-                        {t.settings_bug_unmuted}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => onChangeMuteBugText(true)}
-                        aria-pressed={muteBugText}
-                        className={`seg-btn min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
-                          muteBugText ? 'seg-btn-active' : ''
-                        }`}
-                      >
-                        {t.settings_bug_muted}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {onChangeMuteBugBounceSound && (
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-1.5 text-xs text-fg">
-                      <Volume2 className="w-3.5 h-3.5 text-accent shrink-0" />
-                      <span className="font-semibold">{t.settings_bug_bounce_sound_label}</span>
-                    </div>
-                    <div
-                      role="group"
-                      aria-label={t.settings_bug_bounce_sound_label}
-                      className="seg-group grid grid-cols-2 gap-1"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => onChangeMuteBugBounceSound(false)}
-                        aria-pressed={!muteBugBounceSound}
-                        className={`seg-btn min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
-                          !muteBugBounceSound ? 'seg-btn-active' : ''
-                        }`}
-                      >
-                        {t.settings_bug_unmuted}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => onChangeMuteBugBounceSound(true)}
-                        aria-pressed={muteBugBounceSound}
-                        className={`seg-btn min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
-                          muteBugBounceSound ? 'seg-btn-active' : ''
-                        }`}
-                      >
-                        {t.settings_bug_muted}
-                      </button>
-                    </div>
-                  </div>
-                )}
+                  <ChevronRight className="w-4 h-4 text-fg-muted shrink-0" />
+                </button>
               </div>
             )}
 
@@ -1160,6 +1164,515 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 </div>
                 <ChevronRight className="w-4 h-4 text-fg-muted shrink-0" />
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* SUB-PANTALLA: PERSONALIZAR BUG (VISIBILIDAD, MÚSICA, GORROS RGB Y FRASES) */}
+        {settingsSection === 'bug' && isBugUnlocked && (
+          <div className="pt-4 space-y-5 overflow-y-auto pr-0.5">
+            {/* Vista previa en vivo de Bug 8-bits */}
+            <div className="trophy-oled-window rounded-[4px] border border-subtle py-4 px-4 flex items-center justify-center">
+              <svg
+                viewBox="-6 -12 28 28"
+                className={`w-16 h-16 overflow-visible ${
+                  bugMusicMode === 'on' ? 'animate-bug-music-dance' : ''
+                }`}
+                shapeRendering="crispEdges"
+                aria-hidden="true"
+              >
+                <BugPixelGraphic
+                  expression="happy"
+                  hat={equippedPreviewHat}
+                  hatColor={equippedPreviewHatColor}
+                  showMusicNotes={bugMusicMode === 'on'}
+                />
+              </svg>
+            </div>
+
+            {/* Controles generales de Bug */}
+            <div className="space-y-3">
+              {onChangeHideBug && (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-fg">{t.settings_bug_visibility_label}</p>
+                  <div
+                    role="group"
+                    aria-label={t.settings_bug_visibility_label}
+                    className="seg-group grid grid-cols-2 gap-1"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onChangeHideBug(false)}
+                      aria-pressed={!hideBug}
+                      className={`seg-btn min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
+                        !hideBug ? 'seg-btn-active' : ''
+                      }`}
+                    >
+                      {t.settings_bug_show}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onChangeHideBug(true)}
+                      aria-pressed={hideBug}
+                      className={`seg-btn min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
+                        hideBug ? 'seg-btn-active' : ''
+                      }`}
+                    >
+                      {t.settings_bug_hide}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {onChangeMuteBugText && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5 text-xs text-fg">
+                    <MessageSquare className="w-3.5 h-3.5 text-accent shrink-0" />
+                    <span className="font-semibold">{t.settings_bug_text_label}</span>
+                  </div>
+                  <div
+                    role="group"
+                    aria-label={t.settings_bug_text_label}
+                    className="seg-group grid grid-cols-2 gap-1"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onChangeMuteBugText(false)}
+                      aria-pressed={!muteBugText}
+                      className={`seg-btn min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
+                        !muteBugText ? 'seg-btn-active' : ''
+                      }`}
+                    >
+                      {t.settings_bug_unmuted}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onChangeMuteBugText(true)}
+                      aria-pressed={muteBugText}
+                      className={`seg-btn min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
+                        muteBugText ? 'seg-btn-active' : ''
+                      }`}
+                    >
+                      {t.settings_bug_muted}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {onChangeMuteBugBounceSound && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5 text-xs text-fg">
+                    <Volume2 className="w-3.5 h-3.5 text-accent shrink-0" />
+                    <span className="font-semibold">{t.settings_bug_bounce_sound_label}</span>
+                  </div>
+                  <div
+                    role="group"
+                    aria-label={t.settings_bug_bounce_sound_label}
+                    className="seg-group grid grid-cols-2 gap-1"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onChangeMuteBugBounceSound(false)}
+                      aria-pressed={!muteBugBounceSound}
+                      className={`seg-btn min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
+                        !muteBugBounceSound ? 'seg-btn-active' : ''
+                      }`}
+                    >
+                      {t.settings_bug_unmuted}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onChangeMuteBugBounceSound(true)}
+                      aria-pressed={muteBugBounceSound}
+                      className={`seg-btn min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
+                        muteBugBounceSound ? 'seg-btn-active' : ''
+                      }`}
+                    >
+                      {t.settings_bug_muted}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {onChangeBugMusicMode && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5 text-xs text-fg">
+                    <Music className="w-3.5 h-3.5 text-accent shrink-0" />
+                    <span className="font-semibold">{t.settings_bug_music_label}</span>
+                  </div>
+                  <div
+                    role="group"
+                    aria-label={t.settings_bug_music_label}
+                    className="seg-group grid grid-cols-3 gap-1"
+                  >
+                    {(
+                      [
+                        { id: 'auto', label: t.settings_bug_music_auto },
+                        { id: 'on', label: t.settings_bug_music_on },
+                        { id: 'off', label: t.settings_bug_music_off },
+                      ] as const
+                    ).map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => onChangeBugMusicMode(opt.id)}
+                        aria-pressed={bugMusicMode === opt.id}
+                        className={`seg-btn min-h-[38px] px-2.5 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
+                          bugMusicMode === opt.id ? 'seg-btn-active' : ''
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Gorros 8-bits y código RGB (desbloqueados al Nivel 25) + futuros sombreros ocultos */}
+            <div className="pt-4 border-t border-subtle space-y-3">
+              <p className="font-display text-xs font-semibold uppercase tracking-wider text-accent">
+                {t.settings_bug_hats_heading}
+              </p>
+
+              {!isBugCustomizationUnlocked ? (
+                <div className="rounded-[4px] bg-canvas border border-subtle p-3.5 space-y-3">
+                  <div className="flex items-start gap-2.5">
+                    <Lock className="w-4 h-4 text-accent shrink-0 mt-0.5" />
+                    <p className="text-xs text-fg-secondary leading-relaxed">
+                      {t.settings_bug_hats_locked_desc}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    {[0, 1, 2].map((slotIdx) => (
+                      <div
+                        key={`locked-hat-${slotIdx}`}
+                        aria-hidden="true"
+                        className="rounded-[4px] bg-surface/60 border border-dashed border-subtle py-2.5 px-2 flex flex-col items-center justify-center gap-1 select-none opacity-75"
+                      >
+                        <div className="w-9 h-7 rounded-[3px] trophy-oled-window border border-subtle flex items-center justify-center">
+                          <span className="font-mono text-xs font-bold text-fg-muted">?</span>
+                        </div>
+                        <span className="font-mono text-[11px] font-bold text-fg-muted">
+                          {t.settings_bug_hat_mystery_title}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-3 gap-2">
+                    {(
+                      [
+                        {
+                          id: 'none' as const,
+                          label: t.settings_bug_hat_none,
+                          color: undefined,
+                        },
+                        {
+                          id: 'headphones' as const,
+                          label: t.settings_bug_hat_headphones,
+                          color: resolvedHeadphonesColor,
+                        },
+                        {
+                          id: 'bow' as const,
+                          label: t.settings_bug_hat_bow,
+                          color: resolvedBowColor,
+                        },
+                      ] as const
+                    ).map((hatItem) => {
+                      const isSelected = bugSelectedHat === hatItem.id;
+                      return (
+                        <button
+                          key={hatItem.id}
+                          type="button"
+                          onClick={() => onChangeBugSelectedHat?.(hatItem.id)}
+                          aria-pressed={isSelected}
+                          className={`min-h-[82px] p-2 rounded-[4px] border flex flex-col items-center justify-center gap-1.5 text-center transition cursor-pointer ${
+                            isSelected
+                              ? 'bg-accent-soft border-accent-fill text-fg font-semibold'
+                              : 'bg-canvas border-subtle text-fg-secondary hover:bg-elevated'
+                          }`}
+                        >
+                          <svg
+                            viewBox="-2 -6 20 20"
+                            className="w-8 h-8 shrink-0 overflow-visible"
+                            shapeRendering="crispEdges"
+                            aria-hidden="true"
+                          >
+                            <BugPixelGraphic
+                              expression={isSelected ? 'happy' : 'neutral'}
+                              hat={hatItem.id}
+                              hatColor={hatItem.color}
+                            />
+                          </svg>
+                          <span className="text-[11px] leading-tight line-clamp-2">
+                            {hatItem.label}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Selector de color por código RGB para el gorro activo */}
+                  {editableHatId && onChangeBugHatColor && (
+                    <div className="rounded-[4px] bg-canvas border border-subtle p-3 space-y-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <label
+                          htmlFor="bug-hat-rgb-code"
+                          className="text-xs font-semibold text-fg"
+                        >
+                          {t.settings_bug_rgb_label}
+                        </label>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <svg
+                            viewBox="0 0 16 16"
+                            className="w-4 h-4 rounded-[2px] border border-subtle shrink-0"
+                            aria-hidden="true"
+                          >
+                            <rect
+                              width={16}
+                              height={16}
+                              fill={`rgb(${activeEditableHatRgb.r}, ${activeEditableHatRgb.g}, ${activeEditableHatRgb.b})`}
+                            />
+                          </svg>
+                          <span className="font-mono text-[11px] text-fg-muted tabular-nums">
+                            rgb({formatRgbCode(activeEditableHatRgb)})
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2">
+                        {(['r', 'g', 'b'] as const).map((channel) => (
+                          <div key={channel} className="relative">
+                            <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 font-mono text-[10px] font-bold uppercase text-fg-muted">
+                              {channel}
+                            </span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              value={String(activeEditableHatRgb[channel])}
+                              onChange={(e) => handleUpdateRgbChannel(channel, e.target.value)}
+                              aria-label={`${channel.toUpperCase()} (0-255)`}
+                              className="input-field w-full min-h-[38px] pl-6 pr-2 py-1 text-xs font-mono text-right tabular-nums"
+                            />
+                          </div>
+                        ))}
+                      </div>
+
+                      <form onSubmit={handleApplyRgbDraft} className="flex items-center gap-2">
+                        <input
+                          id="bug-hat-rgb-code"
+                          type="text"
+                          spellCheck={false}
+                          autoComplete="off"
+                          value={rgbCodeDraft}
+                          onChange={(e) => {
+                            setRgbCodeDraft(e.target.value);
+                            if (showRgbError && parseRgbCodeInput(e.target.value)) {
+                              setShowRgbError(false);
+                            }
+                          }}
+                          placeholder={t.settings_bug_rgb_placeholder}
+                          className={`input-field flex-1 min-w-0 min-h-[38px] px-3 py-1.5 font-mono text-xs tabular-nums ${
+                            showRgbError ? 'ring-1 ring-red-400/70' : ''
+                          }`}
+                        />
+                        <button
+                          type="submit"
+                          className="btn-primary min-h-[38px] px-3 py-1.5 text-xs whitespace-nowrap shrink-0"
+                        >
+                          {t.settings_bug_rgb_apply_btn}
+                        </button>
+                      </form>
+
+                      {showRgbError && (
+                        <p role="alert" className="text-[11px] font-medium text-red-400">
+                          {t.settings_bug_rgb_error}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Futuros sombreros ocultos (sin revelar siluetas) */}
+                  <div className="grid grid-cols-3 gap-2 pt-0.5">
+                    {[0, 1, 2].map((mysteryIdx) => (
+                      <div
+                        key={`mystery-hat-${mysteryIdx}`}
+                        aria-label={`${t.settings_bug_hat_mystery_title} · ${t.settings_bug_hat_mystery_sub}`}
+                        className="min-h-[74px] p-2 rounded-[4px] bg-canvas/55 border border-dashed border-subtle flex flex-col items-center justify-center gap-1 text-center select-none opacity-80"
+                      >
+                        <div className="w-9 h-7 rounded-[3px] trophy-oled-window border border-subtle flex items-center justify-center">
+                          <svg
+                            viewBox="0 0 8 10"
+                            className="w-2.5 h-3"
+                            shapeRendering="crispEdges"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M2 1h4v1H2zM1 2h1v1H1zM6 2h1v2H6zM4 4h2v1H4zM3 5h1v2H3zM3 8h1v1H3z"
+                              fill="var(--app-fg-muted)"
+                            />
+                          </svg>
+                        </div>
+                        <span className="font-mono text-[11px] font-bold text-fg-muted leading-none">
+                          {t.settings_bug_hat_mystery_title}
+                        </span>
+                        <span className="text-[10px] text-fg-muted leading-none truncate max-w-full">
+                          {t.settings_bug_hat_mystery_sub}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Frases de Bug: crear, editar, eliminar y restaurar */}
+            <div className="pt-4 border-t border-subtle space-y-3">
+              <p className="font-display text-xs font-semibold uppercase tracking-wider text-accent">
+                {t.settings_bug_phrases_heading}
+              </p>
+
+              {onAddCustomBugPhrase && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const trimmed = newBugPhraseDraft.trim();
+                    if (!trimmed) return;
+                    onAddCustomBugPhrase(newBugPhraseCategory, trimmed);
+                    setNewBugPhraseDraft('');
+                  }}
+                  className="rounded-[4px] bg-canvas border border-subtle p-3 space-y-2"
+                >
+                  <p className="text-xs font-semibold text-fg">{t.settings_bug_new_phrase_label}</p>
+                  <div
+                    role="group"
+                    aria-label={t.settings_bug_new_phrase_label}
+                    className="seg-group grid grid-cols-3 gap-1"
+                  >
+                    {(['streak', 'inactive', 'reaction'] as const).map((cat) => (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setNewBugPhraseCategory(cat)}
+                        aria-pressed={newBugPhraseCategory === cat}
+                        className={`seg-btn min-h-[34px] px-2 py-1 text-[11px] flex items-center justify-center truncate ${
+                          newBugPhraseCategory === cat ? 'seg-btn-active' : ''
+                        }`}
+                      >
+                        {getBugCategoryLabel(cat)}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={newBugPhraseDraft}
+                      onChange={(e) => setNewBugPhraseDraft(e.target.value)}
+                      maxLength={180}
+                      placeholder={t.settings_bug_new_phrase_placeholder}
+                      aria-label={t.settings_bug_new_phrase_placeholder}
+                      className="input-field flex-1 min-w-0 min-h-[38px] px-3 py-1.5 text-xs placeholder:text-fg-muted"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!newBugPhraseDraft.trim()}
+                      className={`min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center gap-1 whitespace-nowrap shrink-0 ${
+                        newBugPhraseDraft.trim()
+                          ? 'btn-primary'
+                          : 'btn-secondary opacity-50 cursor-not-allowed'
+                      }`}
+                    >
+                      <Plus className="w-3.5 h-3.5 shrink-0" />
+                      <span>{t.settings_bug_add_phrase_btn}</span>
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-fg-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={bugPhraseSearchQuery}
+                  onChange={(e) => setBugPhraseSearchQuery(e.target.value)}
+                  placeholder={t.advanced_texts_search_placeholder}
+                  aria-label={t.advanced_texts_search_placeholder}
+                  className="input-field w-full min-h-[38px] pl-8 pr-8 py-1.5 text-xs placeholder:text-fg-muted"
+                />
+                {bugPhraseSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setBugPhraseSearchQuery('')}
+                    aria-label={t.common_close}
+                    className="btn-quiet absolute right-1.5 top-1/2 -translate-y-1/2 min-h-[28px] min-w-[28px] flex items-center justify-center"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <div className="divide-y divide-subtle">
+                {onUpdateCustomBugPhrase &&
+                  onDeleteCustomBugPhrase &&
+                  filteredCustomBugPhrases.map((phrase) => (
+                    <CustomBugPhraseRow
+                      key={phrase.id}
+                      phrase={phrase}
+                      categoryLabel={getBugCategoryLabel(phrase.category)}
+                      customTagLabel={t.settings_bug_custom_phrase_label}
+                      deleteLabel={t.common_delete}
+                      onUpdate={onUpdateCustomBugPhrase}
+                      onDelete={onDeleteCustomBugPhrase}
+                    />
+                  ))}
+
+                {bugDefaultPhraseFields.map((field) => {
+                  const canDeleteDefault =
+                    Boolean(onDeleteDefaultBugPhrase) && isBugDefaultPhraseKey(field.key);
+                  return (
+                    <CustomTextFieldRow
+                      key={`bug-${language}-${field.key}`}
+                      field={field}
+                      label={language === 'en' ? field.labelEn : field.labelEs}
+                      defaultValue={defaultT[field.key]}
+                      customValue={customForLang[field.key]}
+                      resetLabel={t.advanced_texts_reset_one_btn}
+                      deleteLabel={t.common_delete}
+                      onUpdate={onUpdateCustomText}
+                      onReset={onResetCustomText}
+                      onDelete={canDeleteDefault ? onDeleteDefaultBugPhrase : undefined}
+                    />
+                  );
+                })}
+              </div>
+
+              {filteredCustomBugPhrases.length === 0 && bugDefaultPhraseFields.length === 0 && (
+                <p className="py-4 text-center text-xs text-fg-muted">
+                  {t.advanced_texts_no_results}
+                </p>
+              )}
+
+              {onRestoreDeletedBugPhrases && deletedBugPhraseKeys.length > 0 && (
+                <button
+                  type="button"
+                  onClick={onRestoreDeletedBugPhrases}
+                  className="btn-secondary w-full min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center gap-1.5 whitespace-nowrap"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-accent shrink-0" />
+                  <span>
+                    {t.settings_bug_restore_deleted_btn} ({deletedBugPhraseKeys.length})
+                  </span>
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -1495,14 +2008,6 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 filteredTextSections.map((section) => {
                   const sectionHeading =
                     language === 'en' ? section.titleEn : section.titleEs;
-                  const isBugSection = section.id === 'bug_phrases';
-
-                  const getCategoryLabel = (cat: BugDialogueCategory) =>
-                    cat === 'streak'
-                      ? t.settings_bug_cat_streak
-                      : cat === 'inactive'
-                      ? t.settings_bug_cat_inactive
-                      : t.settings_bug_cat_reaction;
 
                   return (
                     <div key={section.id} className="space-y-1">
@@ -1510,120 +2015,20 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                         {sectionHeading}
                       </h4>
 
-                      {isBugSection && onAddCustomBugPhrase && !textSearchQuery.trim() && (
-                        <form
-                          onSubmit={(e) => {
-                            e.preventDefault();
-                            const trimmed = newBugPhraseDraft.trim();
-                            if (!trimmed) return;
-                            onAddCustomBugPhrase(newBugPhraseCategory, trimmed);
-                            setNewBugPhraseDraft('');
-                          }}
-                          className="py-2.5 space-y-2 border-b border-subtle"
-                        >
-                          <p className="text-xs font-semibold text-fg">
-                            {t.settings_bug_new_phrase_label}
-                          </p>
-                          <div
-                            role="group"
-                            aria-label={t.settings_bug_new_phrase_label}
-                            className="seg-group grid grid-cols-3 gap-1"
-                          >
-                            {(['streak', 'inactive', 'reaction'] as const).map((cat) => (
-                              <button
-                                key={cat}
-                                type="button"
-                                onClick={() => setNewBugPhraseCategory(cat)}
-                                aria-pressed={newBugPhraseCategory === cat}
-                                className={`seg-btn min-h-[34px] px-2 py-1 text-[11px] flex items-center justify-center truncate ${
-                                  newBugPhraseCategory === cat ? 'seg-btn-active' : ''
-                                }`}
-                              >
-                                {getCategoryLabel(cat)}
-                              </button>
-                            ))}
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="text"
-                              value={newBugPhraseDraft}
-                              onChange={(e) => setNewBugPhraseDraft(e.target.value)}
-                              maxLength={180}
-                              placeholder={t.settings_bug_new_phrase_placeholder}
-                              aria-label={t.settings_bug_new_phrase_placeholder}
-                              className="input-field flex-1 min-w-0 min-h-[38px] px-3 py-1.5 text-xs placeholder:text-fg-muted"
-                            />
-                            <button
-                              type="submit"
-                              disabled={!newBugPhraseDraft.trim()}
-                              className={`min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center gap-1 whitespace-nowrap shrink-0 ${
-                                newBugPhraseDraft.trim()
-                                  ? 'btn-primary'
-                                  : 'btn-secondary opacity-50 cursor-not-allowed'
-                              }`}
-                            >
-                              <Plus className="w-3.5 h-3.5 shrink-0" />
-                              <span>{t.settings_bug_add_phrase_btn}</span>
-                            </button>
-                          </div>
-                        </form>
-                      )}
-
                       <div className="divide-y divide-subtle">
-                        {isBugSection &&
-                          onUpdateCustomBugPhrase &&
-                          onDeleteCustomBugPhrase &&
-                          filteredCustomBugPhrases.map((phrase) => (
-                            <CustomBugPhraseRow
-                              key={phrase.id}
-                              phrase={phrase}
-                              categoryLabel={getCategoryLabel(phrase.category)}
-                              customTagLabel={t.settings_bug_custom_phrase_label}
-                              deleteLabel={t.common_delete}
-                              onUpdate={onUpdateCustomBugPhrase}
-                              onDelete={onDeleteCustomBugPhrase}
-                            />
-                          ))}
-
-                        {section.fields.map((field) => {
-                          const canDeleteDefault =
-                            isBugSection &&
-                            Boolean(onDeleteDefaultBugPhrase) &&
-                            isBugDefaultPhraseKey(field.key);
-                          return (
-                            <CustomTextFieldRow
-                              key={`${language}-${field.key}`}
-                              field={field}
-                              label={language === 'en' ? field.labelEn : field.labelEs}
-                              defaultValue={defaultT[field.key]}
-                              customValue={customForLang[field.key]}
-                              resetLabel={t.advanced_texts_reset_one_btn}
-                              deleteLabel={t.common_delete}
-                              onUpdate={onUpdateCustomText}
-                              onReset={onResetCustomText}
-                              onDelete={canDeleteDefault ? onDeleteDefaultBugPhrase : undefined}
-                            />
-                          );
-                        })}
+                        {section.fields.map((field) => (
+                          <CustomTextFieldRow
+                            key={`${language}-${field.key}`}
+                            field={field}
+                            label={language === 'en' ? field.labelEn : field.labelEs}
+                            defaultValue={defaultT[field.key]}
+                            customValue={customForLang[field.key]}
+                            resetLabel={t.advanced_texts_reset_one_btn}
+                            onUpdate={onUpdateCustomText}
+                            onReset={onResetCustomText}
+                          />
+                        ))}
                       </div>
-
-                      {isBugSection &&
-                        onRestoreDeletedBugPhrases &&
-                        deletedBugPhraseKeys.length > 0 && (
-                          <div className="pt-2">
-                            <button
-                              type="button"
-                              onClick={onRestoreDeletedBugPhrases}
-                              className="btn-secondary w-full min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center gap-1.5 whitespace-nowrap"
-                            >
-                              <RotateCcw className="w-3.5 h-3.5 text-accent shrink-0" />
-                              <span>
-                                {t.settings_bug_restore_deleted_btn} ({deletedBugPhraseKeys.length})
-                              </span>
-                            </button>
-                          </div>
-                        )}
                     </div>
                   );
                 })

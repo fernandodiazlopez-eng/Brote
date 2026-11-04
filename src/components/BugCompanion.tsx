@@ -4,18 +4,31 @@
  * - Mirada curiosa según ubicación (hacia abajo en Rutinas y Estadísticas; hacia el avatar o al frente en Perfil) y parpadeo ocasional.
  * - Nivel 3: Desbloqueo de Bug en la interfaz y carrusel de metro.
  * - Nivel 4: Acariciar con Doble Tap (ojos en arcos felices, parpadeo y destello de chispas del color secundario; sin texto).
- * - Nivel 5: Jugar con Bug con el dedo (al mantener pulsado o arrastrarlo pasa a ser un círculo completo, rebota limpio con chispas y sonido 8-bits, frena progresivamente y reaparece de inmediato en su sitio).
- * - Reacciones vivas: salta feliz al desbloquear un logro, pega un saltito al subir la app hasta el tope y se asusta cuando suena la alarma del temporizador.
+ * - Nivel 5: Jugar con Bug con el dedo (círculo completo, rebota limpio con chispas y sonido 8-bits, frena y se teletransporta a su sitio).
+ * - Nivel 25: Personalización con gorros 8-bits (Cascos de música y Lacito) con color por código RGB.
+ * - Horario de sueño (22:00 – 06:00): duerme con Zzz; despierta confundido si subes rápido, lo lanzas o suena alarma; feliz al acariciarlo; sigue dormido al teletransportarse entre pestañas.
+ * - Reacción multimedia: baila con notas musicales 8-bits en la cabeza cuando suena música/multimedia.
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { getBugMilestoneCopy } from '../data/bugCompanionData';
+import {
+  clampRgbByte,
+  DEFAULT_BUG_HAT_COLORS,
+  getBugMilestoneCopy,
+} from '../data/bugCompanionData';
 import { useI18n } from '../i18n/I18nContext';
-import { BugUnlockMilestone } from '../types';
+import { BugHatId, BugMusicMode, BugUnlockMilestone, RgbColor } from '../types';
 import { playBugBounceSound } from '../utils/audioEffects';
 
-export type BugEyeExpression = 'neutral' | 'blink' | 'happy' | 'sad' | 'scared';
+export type BugEyeExpression =
+  | 'neutral'
+  | 'blink'
+  | 'happy'
+  | 'sad'
+  | 'scared'
+  | 'sleeping'
+  | 'confused';
 export type BugGazeMode = 'down' | 'avatar-front';
 export type BugGlobalMood = 'none' | 'sad' | 'happy';
 
@@ -23,16 +36,28 @@ export interface BugReactionContextValue {
   isAlarmRinging: boolean;
   trophyCelebrateToken: number;
   scrollTopHopToken: number;
+  fastScrollUpToken: number;
   tabTeleportToken: number;
   muteBounceSound: boolean;
+  isSleepHours: boolean;
+  isMusicPlaying: boolean;
+  musicMode: BugMusicMode;
+  equippedHat: BugHatId;
+  equippedHatColor: RgbColor;
 }
 
 export const BugReactionContext = createContext<BugReactionContextValue>({
   isAlarmRinging: false,
   trophyCelebrateToken: 0,
   scrollTopHopToken: 0,
+  fastScrollUpToken: 0,
   tabTeleportToken: 0,
   muteBounceSound: false,
+  isSleepHours: false,
+  isMusicPlaying: false,
+  musicMode: 'auto',
+  equippedHat: 'none',
+  equippedHatColor: DEFAULT_BUG_HAT_COLORS.headphones,
 });
 
 interface PixelSparkParticle {
@@ -55,11 +80,32 @@ const BUG_PERCHED_BODY_PATH =
 const BUG_FULL_CIRCLE_PATH =
   'M5 0h6v1H5zM3 1h10v1H3zM2 2h12v1H2zM1 3h14v2H1zM0 5h16v6H0zM1 11h14v2H1zM2 13h12v1H2zM3 14h10v1H3zM5 15h6v1H5z';
 
+function buildHatShades(color: RgbColor): { main: string; hi: string; shade: string } {
+  const r = clampRgbByte(color.r);
+  const g = clampRgbByte(color.g);
+  const b = clampRgbByte(color.b);
+  const hiR = Math.min(255, Math.round(r + (255 - r) * 0.45));
+  const hiG = Math.min(255, Math.round(g + (255 - g) * 0.45));
+  const hiB = Math.min(255, Math.round(b + (255 - b) * 0.45));
+  const shR = Math.round(r * 0.58);
+  const shG = Math.round(g * 0.58);
+  const shB = Math.round(b * 0.58);
+  return {
+    main: `rgb(${r}, ${g}, ${b})`,
+    hi: `rgb(${hiR}, ${hiG}, ${hiB})`,
+    shade: `rgb(${shR}, ${shG}, ${shB})`,
+  };
+}
+
 interface BugPixelGraphicProps {
   expression: BugEyeExpression;
   gazeX?: -1 | 0 | 1;
   gazeY?: -1 | 0 | 1;
   isFullCircle?: boolean;
+  hat?: BugHatId;
+  hatColor?: RgbColor;
+  showSleepingZzz?: boolean;
+  showMusicNotes?: boolean;
 }
 
 export const BugPixelGraphic: React.FC<BugPixelGraphicProps> = React.memo(({
@@ -67,70 +113,202 @@ export const BugPixelGraphic: React.FC<BugPixelGraphicProps> = React.memo(({
   gazeX = 0,
   gazeY = 0,
   isFullCircle = false,
+  hat = 'none',
+  hatColor,
+  showSleepingZzz = false,
+  showMusicNotes = false,
 }) => {
+  const resolvedHatShades =
+    hat === 'none'
+      ? null
+      : buildHatShades(
+          hatColor ??
+            (hat === 'bow' ? DEFAULT_BUG_HAT_COLORS.bow : DEFAULT_BUG_HAT_COLORS.headphones)
+        );
+
   return (
     <g shapeRendering="crispEdges">
-      <path
-        d={isFullCircle ? BUG_FULL_CIRCLE_PATH : BUG_PERCHED_BODY_PATH}
-        fill="var(--app-accent-fill)"
-      />
-      {/* Brillo especular pixelado sutil en la esquina superior izquierda */}
-      <rect x={3} y={2} width={2} height={1} fill="#ffffff" fillOpacity={0.28} />
-      <rect x={2} y={3} width={1} height={1} fill="#ffffff" fillOpacity={0.22} />
+      <g className={expression === 'sleeping' && !isFullCircle ? 'animate-bug-sleep-breathe' : undefined}>
+        <path
+          d={isFullCircle ? BUG_FULL_CIRCLE_PATH : BUG_PERCHED_BODY_PATH}
+          fill="var(--app-accent-fill)"
+        />
+        {/* Brillo especular pixelado sutil en la esquina superior izquierda */}
+        <rect x={3} y={2} width={2} height={1} fill="#ffffff" fillOpacity={0.28} />
+        <rect x={2} y={3} width={1} height={1} fill="#ffffff" fillOpacity={0.22} />
 
-      {/* Expresiones de los ojos 8-bits (sin corazones) */}
-      {expression === 'neutral' && (
-        <g fill="var(--app-accent-fg)">
-          <rect x={4 + gazeX} y={6 + gazeY} width={2} height={3} />
-          <rect x={10 + gazeX} y={6 + gazeY} width={2} height={3} />
+        {/* Expresiones de los ojos 8-bits */}
+        {expression === 'neutral' && (
+          <g fill="var(--app-accent-fg)">
+            <rect x={4 + gazeX} y={6 + gazeY} width={2} height={3} />
+            <rect x={10 + gazeX} y={6 + gazeY} width={2} height={3} />
+          </g>
+        )}
+
+        {expression === 'blink' && (
+          <g fill="var(--app-accent-fg)">
+            <rect x={4 + gazeX} y={7 + gazeY} width={2} height={1} />
+            <rect x={10 + gazeX} y={7 + gazeY} width={2} height={1} />
+          </g>
+        )}
+
+        {expression === 'sleeping' && (
+          <g fill="var(--app-accent-fg)">
+            <rect x={3} y={8} width={4} height={1} />
+            <rect x={9} y={8} width={4} height={1} />
+          </g>
+        )}
+
+        {expression === 'happy' && (
+          <g fill="var(--app-accent-fg)">
+            {/* Arco feliz izquierdo (^ sin corazones) */}
+            <rect x={3} y={8} width={1} height={1} />
+            <rect x={4} y={7} width={2} height={1} />
+            <rect x={6} y={8} width={1} height={1} />
+            {/* Arco feliz derecho */}
+            <rect x={9} y={8} width={1} height={1} />
+            <rect x={10} y={7} width={2} height={1} />
+            <rect x={12} y={8} width={1} height={1} />
+          </g>
+        )}
+
+        {expression === 'sad' && (
+          <g fill="var(--app-accent-fg)">
+            {/* Ojos tristes inclinados hacia el exterior */}
+            <rect x={4} y={7} width={2} height={1} />
+            <rect x={3} y={8} width={2} height={1} />
+            <rect x={10} y={7} width={2} height={1} />
+            <rect x={11} y={8} width={2} height={1} />
+          </g>
+        )}
+
+        {expression === 'confused' && (
+          <g>
+            {/* Mirada confundida asimétrica mirando al usuario */}
+            <g fill="var(--app-accent-fg)">
+              {/* Ceja izquierda alzada + ojo grande */}
+              <rect x={3} y={4} width={3} height={1} />
+              <rect x={3} y={6} width={3} height={3} />
+              {/* Ojo derecho entrecerrado */}
+              <rect x={9} y={6} width={4} height={1} />
+              <rect x={10} y={7} width={2} height={2} />
+            </g>
+            {/* Signo de interrogación 8-bits (?) sobre la cabeza */}
+            <g fill="var(--app-accent-fill)">
+              <rect x={15} y={-9} width={3} height={1} />
+              <rect x={14} y={-8} width={1} height={1} />
+              <rect x={18} y={-8} width={1} height={2} />
+              <rect x={16} y={-6} width={2} height={1} />
+              <rect x={16} y={-5} width={1.2} height={1.5} />
+              <rect x={16} y={-2.5} width={1.4} height={1.4} />
+            </g>
+          </g>
+        )}
+
+        {expression === 'scared' && (
+          <g>
+            {/* Signo de exclamación 8-bits sobre la cabeza al asustarse con la alarma */}
+            <rect x={7} y={-8} width={2} height={3.5} fill="var(--app-accent-fill)" />
+            <rect x={7} y={-3.5} width={2} height={1.5} fill="var(--app-accent-fill)" />
+            {/* Ojos desorbitados 8-bits (anillos abiertos 4×4 de alto contraste) */}
+            <rect x={3} y={5} width={4} height={4} fill="var(--app-accent-fg)" />
+            <rect x={4} y={6} width={2} height={2} fill="var(--app-accent-fill)" />
+            <rect x={9} y={5} width={4} height={4} fill="var(--app-accent-fg)" />
+            <rect x={10} y={6} width={2} height={2} fill="var(--app-accent-fill)" />
+          </g>
+        )}
+
+        {/* Gorros 8-bits personalizables con código RGB (Nivel 25+) */}
+        {hat === 'headphones' && resolvedHatShades && (
+          <g>
+            {/* Diadema superior */}
+            <rect x={4} y={-2} width={8} height={2} fill={resolvedHatShades.main} />
+            <rect x={5} y={-2} width={6} height={1} fill={resolvedHatShades.hi} />
+            <rect x={2} y={-1} width={2} height={2} fill={resolvedHatShades.main} />
+            <rect x={12} y={-1} width={2} height={2} fill={resolvedHatShades.main} />
+            <rect x={0} y={1} width={2} height={2} fill={resolvedHatShades.main} />
+            <rect x={14} y={1} width={2} height={2} fill={resolvedHatShades.main} />
+            <rect x={-1} y={3} width={1} height={1} fill={resolvedHatShades.shade} />
+            <rect x={16} y={3} width={1} height={1} fill={resolvedHatShades.shade} />
+            {/* Auricular izquierdo */}
+            <rect x={-2} y={4} width={3} height={5} fill={resolvedHatShades.main} />
+            <rect x={0} y={4} width={1} height={5} fill={resolvedHatShades.shade} />
+            <rect x={-2} y={5} width={1} height={2} fill={resolvedHatShades.hi} />
+            {/* Auricular derecho */}
+            <rect x={15} y={4} width={3} height={5} fill={resolvedHatShades.main} />
+            <rect x={15} y={4} width={1} height={5} fill={resolvedHatShades.shade} />
+            <rect x={17} y={5} width={1} height={2} fill={resolvedHatShades.hi} />
+          </g>
+        )}
+
+        {hat === 'bow' && resolvedHatShades && (
+          <g>
+            {/* Lazo izquierdo */}
+            <rect x={3} y={-3} width={3} height={4} fill={resolvedHatShades.main} />
+            <rect x={6} y={-2} width={1} height={2} fill={resolvedHatShades.main} />
+            <rect x={3} y={-3} width={2} height={1} fill={resolvedHatShades.hi} />
+            <rect x={3} y={0} width={3} height={1} fill={resolvedHatShades.shade} />
+            {/* Lazo derecho */}
+            <rect x={10} y={-3} width={3} height={4} fill={resolvedHatShades.main} />
+            <rect x={9} y={-2} width={1} height={2} fill={resolvedHatShades.main} />
+            <rect x={11} y={-3} width={2} height={1} fill={resolvedHatShades.hi} />
+            <rect x={10} y={0} width={3} height={1} fill={resolvedHatShades.shade} />
+            {/* Nudo central */}
+            <rect x={7} y={-2} width={2} height={3} fill={resolvedHatShades.shade} />
+            <rect x={7} y={-2} width={2} height={1} fill={resolvedHatShades.hi} />
+            <rect x={7} y={-1} width={2} height={1} fill={resolvedHatShades.main} />
+          </g>
+        )}
+      </g>
+
+      {/* Zzz flotantes 8-bits mientras duerme (22:00 – 06:00) */}
+      {showSleepingZzz && (
+        <g fill="var(--app-accent-fill)">
+          <g className="animate-bug-zzz-1">
+            <rect x={14} y={-4} width={3} height={0.9} />
+            <rect x={15} y={-3.1} width={1} height={0.9} />
+            <rect x={14} y={-2.2} width={3} height={0.9} />
+          </g>
+          <g className="animate-bug-zzz-2">
+            <rect x={17} y={-8} width={3.5} height={0.9} />
+            <rect x={18.6} y={-7.1} width={1} height={0.9} />
+            <rect x={17.7} y={-6.2} width={1} height={0.9} />
+            <rect x={17} y={-5.3} width={3.5} height={0.9} />
+          </g>
+          <g className="animate-bug-zzz-3">
+            <rect x={20} y={-12} width={4} height={1} />
+            <rect x={22} y={-11} width={1} height={1} />
+            <rect x={21} y={-10} width={1} height={1} />
+            <rect x={20} y={-9} width={4} height={1} />
+          </g>
         </g>
       )}
 
-      {expression === 'blink' && (
-        <g fill="var(--app-accent-fg)">
-          <rect x={4 + gazeX} y={7 + gazeY} width={2} height={1} />
-          <rect x={10 + gazeX} y={7 + gazeY} width={2} height={1} />
-        </g>
-      )}
-
-      {expression === 'happy' && (
-        <g fill="var(--app-accent-fg)">
-          {/* Arco feliz izquierdo (^ sin corazones) */}
-          <rect x={3} y={8} width={1} height={1} />
-          <rect x={4} y={7} width={2} height={1} />
-          <rect x={6} y={8} width={1} height={1} />
-          {/* Arco feliz derecho */}
-          <rect x={9} y={8} width={1} height={1} />
-          <rect x={10} y={7} width={2} height={1} />
-          <rect x={12} y={8} width={1} height={1} />
-        </g>
-      )}
-
-      {expression === 'sad' && (
-        <g fill="var(--app-accent-fg)">
-          {/* Ojos tristes inclinados hacia el exterior */}
-          <rect x={4} y={7} width={2} height={1} />
-          <rect x={3} y={8} width={2} height={1} />
-          <rect x={10} y={7} width={2} height={1} />
-          <rect x={11} y={8} width={2} height={1} />
-        </g>
-      )}
-
-      {expression === 'scared' && (
-        <g>
-          {/* Signo de exclamación 8-bits sobre la cabeza al asustarse con la alarma */}
-          <rect x={7} y={-6.5} width={2} height={3.5} fill="var(--app-accent-fill)" />
-          <rect x={7} y={-2} width={2} height={1.5} fill="var(--app-accent-fill)" />
-          {/* Ojos desorbitados 8-bits (anillos abiertos 4×4 de alto contraste) */}
-          <rect x={3} y={5} width={4} height={4} fill="var(--app-accent-fg)" />
-          <rect x={4} y={6} width={2} height={2} fill="var(--app-accent-fill)" />
-          <rect x={9} y={5} width={4} height={4} fill="var(--app-accent-fg)" />
-          <rect x={10} y={6} width={2} height={2} fill="var(--app-accent-fill)" />
+      {/* Notas musicales 8-bits sobre la cabeza al bailar con música */}
+      {showMusicNotes && (
+        <g fill="var(--app-accent-fill)">
+          {/* Nota izquierda (♪) */}
+          <g className="animate-bug-note-1">
+            <rect x={-3.5} y={-5.5} width={2.2} height={1.8} />
+            <rect x={-2.2} y={-9.5} width={0.9} height={4.5} />
+            <rect x={-1.3} y={-9.5} width={1.6} height={0.9} />
+            <rect x={-0.5} y={-8.6} width={0.9} height={0.9} />
+          </g>
+          {/* Nota doble derecha (♫) */}
+          <g className="animate-bug-note-2">
+            <rect x={15} y={-5.5} width={2} height={1.8} />
+            <rect x={16.1} y={-9.5} width={0.9} height={4.5} />
+            <rect x={18.5} y={-6.5} width={2} height={1.8} />
+            <rect x={19.6} y={-10.5} width={0.9} height={4.5} />
+            <rect x={16.1} y={-10.5} width={4.4} height={1} />
+          </g>
         </g>
       )}
     </g>
   );
 });
+
+type NightSleepPhase = 'asleep' | 'confused' | 'pet-happy' | 'settling-blink';
 
 interface BugPerchProps {
   gazeMode: BugGazeMode;
@@ -151,30 +329,48 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
     isAlarmRinging,
     trophyCelebrateToken,
     scrollTopHopToken,
+    fastScrollUpToken,
     tabTeleportToken,
     muteBounceSound,
+    isSleepHours,
+    isMusicPlaying,
+    musicMode,
+    equippedHat,
+    equippedHatColor,
   } = useContext(BugReactionContext);
 
   const muteBounceSoundRef = useRef(muteBounceSound);
   muteBounceSoundRef.current = muteBounceSound;
+
+  const isSleepHoursRef = useRef(isSleepHours);
+  isSleepHoursRef.current = isSleepHours;
 
   const [gazeOffset, setGazeOffset] = useState<{ x: -1 | 0 | 1; y: -1 | 0 | 1 }>(() =>
     gazeMode === 'down' ? { x: 0, y: 1 } : { x: 0, y: 0 }
   );
   const [isIdleBlinking, setIsIdleBlinking] = useState(false);
   const [localPetPhase, setLocalPetPhase] = useState<'none' | 'happy' | 'blink'>('none');
+  const [nightPhase, setNightPhase] = useState<NightSleepPhase>('asleep');
+  const nightPhaseRef = useRef<NightSleepPhase>('asleep');
+  nightPhaseRef.current = nightPhase;
+
   const [teleportKey, setTeleportKey] = useState<number>(() => (tabTeleportToken > 0 ? 1 : 0));
   const [isTeleportingIn, setIsTeleportingIn] = useState<boolean>(() => tabTeleportToken > 0);
 
-  // Estados de saltos reactivos (logro desbloqueado / tope superior de la app)
-  const [activeJumpAnim, setActiveJumpAnim] = useState<'none' | 'trophy' | 'top-hop'>('none');
+  // Estados de saltos y despertares reactivos
+  const [activeJumpAnim, setActiveJumpAnim] = useState<
+    'none' | 'trophy' | 'top-hop' | 'confused'
+  >('none');
   const [jumpAnimKey, setJumpAnimKey] = useState(0);
   const lastSeenTrophyTokenRef = useRef(trophyCelebrateToken);
   const lastSeenTopHopTokenRef = useRef(scrollTopHopToken);
+  const lastSeenFastScrollTokenRef = useRef(fastScrollUpToken);
   const lastSeenTabTeleportRef = useRef(tabTeleportToken);
+  const wasAlarmRingingRef = useRef(isAlarmRinging);
   const jumpTimerRef = useRef<number | null>(null);
   const teleportInTimerRef = useRef<number | null>(null);
   const returnTeleportTimerRef = useRef<number | null>(null);
+  const nightTimersRef = useRef<number[]>([]);
 
   // Estado para modo Air Hockey (Nivel 5+)
   const [hockeyMode, setHockeyMode] = useState<'idle' | 'grabbed' | 'flying' | 'returning'>('idle');
@@ -212,14 +408,55 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
   const flightRafRef = useRef<number | null>(null);
   const bounceHappyUntilRef = useRef<number>(0);
 
+  const clearNightTimers = useCallback(() => {
+    nightTimersRef.current.forEach((id) => window.clearTimeout(id));
+    nightTimersRef.current = [];
+  }, []);
+
+  const scheduleSettleBackToSleep = useCallback(
+    (awakeDurationMs: number) => {
+      clearNightTimers();
+      const tBlink = window.setTimeout(() => {
+        setNightPhase('settling-blink');
+      }, awakeDurationMs);
+      const tSleep = window.setTimeout(() => {
+        setNightPhase('asleep');
+        setActiveJumpAnim((prev) => (prev === 'confused' ? 'none' : prev));
+      }, awakeDurationMs + 300);
+      nightTimersRef.current.push(tBlink, tSleep);
+    },
+    [clearNightTimers]
+  );
+
+  const triggerNightWakeConfused = useCallback(
+    (durationMs = 3000) => {
+      clearNightTimers();
+      setNightPhase('confused');
+      setActiveJumpAnim('confused');
+      setJumpAnimKey((k) => k + 1);
+      scheduleSettleBackToSleep(durationMs);
+    },
+    [clearNightTimers, scheduleSettleBackToSleep]
+  );
+
+  // Al entrar o salir del horario nocturno (22:00 – 06:00), sincronizar fase de sueño
+  useEffect(() => {
+    clearNightTimers();
+    setNightPhase('asleep');
+    if (!isSleepHours) {
+      setActiveJumpAnim((prev) => (prev === 'confused' ? 'none' : prev));
+    }
+  }, [isSleepHours, clearNightTimers]);
+
   // Sincronizar dirección base al cambiar gazeMode
   useEffect(() => {
     setGazeOffset(gazeMode === 'down' ? { x: 0, y: 1 } : { x: 0, y: 0 });
   }, [gazeMode]);
 
-  // Mirada curiosa y parpadeo ocasional en reposo
+  // Mirada curiosa y parpadeo ocasional en reposo (pausado mientras duerme)
   useEffect(() => {
-    if (hockeyMode !== 'idle' || isAlarmRinging) return;
+    const isCurrentlySleeping = isSleepHours && nightPhase === 'asleep' && musicMode !== 'on';
+    if (hockeyMode !== 'idle' || isAlarmRinging || isCurrentlySleeping) return;
 
     let actionTimer: number | null = null;
     let blinkResetTimer: number | null = null;
@@ -279,7 +516,7 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
       if (actionTimer !== null) window.clearTimeout(actionTimer);
       if (blinkResetTimer !== null) window.clearTimeout(blinkResetTimer);
     };
-  }, [gazeMode, hockeyMode, isAlarmRinging]);
+  }, [gazeMode, hockeyMode, isAlarmRinging, isSleepHours, nightPhase, musicMode]);
 
   // Limpieza global al desmontar
   useEffect(() => {
@@ -287,10 +524,13 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
       if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
       if (jumpTimerRef.current !== null) window.clearTimeout(jumpTimerRef.current);
       if (teleportInTimerRef.current !== null) window.clearTimeout(teleportInTimerRef.current);
-      if (returnTeleportTimerRef.current !== null) window.clearTimeout(returnTeleportTimerRef.current);
+      if (returnTeleportTimerRef.current !== null) {
+        window.clearTimeout(returnTeleportTimerRef.current);
+      }
       if (petRafRef.current !== null) window.cancelAnimationFrame(petRafRef.current);
       if (flightRafRef.current !== null) window.cancelAnimationFrame(flightRafRef.current);
       petTimersRef.current.forEach((id) => window.clearTimeout(id));
+      nightTimersRef.current.forEach((id) => window.clearTimeout(id));
     };
   }, []);
 
@@ -375,6 +615,16 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
     petTimersRef.current.forEach((id) => window.clearTimeout(id));
     petTimersRef.current = [];
 
+    if (isSleepHoursRef.current) {
+      // Si lo acaricias dormido: despierta feliz y vuelve a dormirse tranquilamente
+      clearNightTimers();
+      setActiveJumpAnim('none');
+      setNightPhase('pet-happy');
+      emitLocalSparksBurst();
+      scheduleSettleBackToSleep(1650);
+      return;
+    }
+
     setLocalPetPhase('happy');
     const t1 = window.setTimeout(() => setLocalPetPhase('blink'), 170);
     const t2 = window.setTimeout(() => setLocalPetPhase('happy'), 280);
@@ -382,7 +632,7 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
     petTimersRef.current.push(t1, t2, t3);
 
     emitLocalSparksBurst();
-  }, [emitLocalSparksBurst]);
+  }, [clearNightTimers, emitLocalSparksBurst, scheduleSettleBackToSleep]);
 
   // Partículas verticales 8-bits de teletransporte al materializarse en su sitio
   const emitTeleportParticles = useCallback(() => {
@@ -471,12 +721,19 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
         setHockeyMode('idle');
         setPuckExpression('neutral');
         triggerTeleportArrival();
+
+        // Al volver de haber sido lanzado por la noche, se queda mirando confundido antes de dormirse
+        if (isSleepHoursRef.current) {
+          clearNightTimers();
+          setNightPhase('confused');
+          scheduleSettleBackToSleep(3200);
+        }
       }, 160);
     },
-    [triggerTeleportArrival]
+    [clearNightTimers, scheduleSettleBackToSleep, triggerTeleportArrival]
   );
 
-  // Efecto de teletransporte al montar tras cambiar entre Rutinas, Perfil y Estadísticas
+  // Efecto de teletransporte al montar tras cambiar entre Rutinas, Perfil y Estadísticas (sigue dormido si era de noche)
   useEffect(() => {
     if (tabTeleportToken <= 0) return;
     emitTeleportParticles();
@@ -484,17 +741,31 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
       setIsTeleportingIn(false);
       teleportInTimerRef.current = null;
     }, 360);
-    // Solo al montar la instancia en la nueva pestaña
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // También si cambia de vista permaneciendo el mismo componente montado
+  // También si cambia de vista permaneciendo el mismo componente montado (sigue dormido)
   useEffect(() => {
     if (tabTeleportToken <= lastSeenTabTeleportRef.current) return;
     lastSeenTabTeleportRef.current = tabTeleportToken;
     if (hockeyModeRef.current !== 'idle') return;
     triggerTeleportArrival();
   }, [tabTeleportToken, triggerTeleportArrival]);
+
+  // Alarma en horario de sueño: despierta confundido mientras suena y al parar vuelve a dormirse
+  useEffect(() => {
+    if (isSleepHours) {
+      if (isAlarmRinging) {
+        clearNightTimers();
+        setNightPhase('confused');
+        setActiveJumpAnim('confused');
+        setJumpAnimKey((k) => k + 1);
+      } else if (wasAlarmRingingRef.current) {
+        scheduleSettleBackToSleep(3000);
+      }
+    }
+    wasAlarmRingingRef.current = isAlarmRinging;
+  }, [isAlarmRinging, isSleepHours, clearNightTimers, scheduleSettleBackToSleep]);
 
   // Reacción 1: Salto feliz cuando el usuario desbloquea un logro
   useEffect(() => {
@@ -506,9 +777,15 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
     petTimersRef.current.forEach((id) => window.clearTimeout(id));
     petTimersRef.current = [];
 
-    setLocalPetPhase('happy');
-    const happyEndId = window.setTimeout(() => setLocalPetPhase('none'), 2400);
-    petTimersRef.current.push(happyEndId);
+    if (isSleepHoursRef.current) {
+      clearNightTimers();
+      setNightPhase('pet-happy');
+      scheduleSettleBackToSleep(2200);
+    } else {
+      setLocalPetPhase('happy');
+      const happyEndId = window.setTimeout(() => setLocalPetPhase('none'), 2400);
+      petTimersRef.current.push(happyEndId);
+    }
 
     setActiveJumpAnim('trophy');
     setJumpAnimKey((k) => k + 1);
@@ -518,13 +795,32 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
       setActiveJumpAnim('none');
       jumpTimerRef.current = null;
     }, 1300);
-  }, [trophyCelebrateToken, isAlarmRinging, emitLocalSparksBurst]);
+  }, [
+    trophyCelebrateToken,
+    isAlarmRinging,
+    clearNightTimers,
+    scheduleSettleBackToSleep,
+    emitLocalSparksBurst,
+  ]);
 
-  // Reacción 2: Saltito cuando el usuario sube la app hasta el tope
+  // Reacción 2: Subir rápido la pantalla durante la noche -> despierta confundido
+  useEffect(() => {
+    if (fastScrollUpToken <= lastSeenFastScrollTokenRef.current) return;
+    lastSeenFastScrollTokenRef.current = fastScrollUpToken;
+    if (!isSleepHoursRef.current || hockeyModeRef.current !== 'idle' || isAlarmRinging) return;
+    triggerNightWakeConfused(3000);
+  }, [fastScrollUpToken, isAlarmRinging, triggerNightWakeConfused]);
+
+  // Reacción 3: Saltito cuando el usuario sube la app hasta el tope (o despierta confundido de noche)
   useEffect(() => {
     if (scrollTopHopToken <= lastSeenTopHopTokenRef.current) return;
     lastSeenTopHopTokenRef.current = scrollTopHopToken;
     if (hockeyModeRef.current !== 'idle' || isAlarmRinging || activeJumpAnim === 'trophy') return;
+
+    if (isSleepHoursRef.current) {
+      triggerNightWakeConfused(3000);
+      return;
+    }
 
     if (jumpTimerRef.current !== null) window.clearTimeout(jumpTimerRef.current);
     setLocalPetPhase('happy');
@@ -538,7 +834,7 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
       setActiveJumpAnim('none');
       jumpTimerRef.current = null;
     }, 360);
-  }, [scrollTopHopToken, isAlarmRinging, activeJumpAnim]);
+  }, [scrollTopHopToken, isAlarmRinging, activeJumpAnim, triggerNightWakeConfused]);
 
   // Bloquear gestos nativos del navegador móvil sobre Bug (selección de texto, menú contextual y scroll accidental)
   useEffect(() => {
@@ -566,57 +862,71 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
     };
   }, [canLaunchHockey, canPet]);
 
-  const spawnWallCollisionSparks = useCallback((hitX: number, hitY: number, nx: number, ny: number) => {
-    const baseAngle = Math.atan2(ny, nx);
-    for (let i = 0; i < 8; i += 1) {
-      const spread = (i - 3.5) * 0.34 + (Math.random() - 0.5) * 0.14;
-      const angle = baseAngle + spread;
-      const speed = 95 + Math.random() * 145;
-      wallSparksRef.current.push({
-        x: hitX,
-        y: hitY,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        life: 0,
-        maxLife: 0.28 + Math.random() * 0.14,
-        size: i % 2 === 0 ? 5 : 4,
-      });
-    }
-  }, []);
-
-  const enterGrabbedHockeyMode = useCallback((initialX: number, initialY: number) => {
-    if (longPressTimerRef.current !== null) {
-      window.clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-    if (hockeyModeRef.current !== 'idle') return;
-
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    const clampedX = Math.max(16, Math.min(w - 16, initialX));
-    const clampedY = Math.max(16, Math.min(h - 16, initialY));
-    const now = performance.now();
-
-    setViewportSize({ w, h });
-    puckPosRef.current = { x: clampedX, y: clampedY, vx: 0, vy: 0 };
-    if (pointerHistoryRef.current.length === 0) {
-      pointerHistoryRef.current = [{ x: clampedX, y: clampedY, t: now }];
-    } else {
-      pointerHistoryRef.current.push({ x: clampedX, y: clampedY, t: now });
-    }
-    wallSparksRef.current = [];
-    setPuckExpression('happy');
-    hockeyModeRef.current = 'grabbed';
-    setHockeyMode('grabbed');
-
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-      try {
-        navigator.vibrate(18);
-      } catch {
-        // Ignorar restricciones de vibración
+  const spawnWallCollisionSparks = useCallback(
+    (hitX: number, hitY: number, nx: number, ny: number) => {
+      const baseAngle = Math.atan2(ny, nx);
+      for (let i = 0; i < 8; i += 1) {
+        const spread = (i - 3.5) * 0.34 + (Math.random() - 0.5) * 0.14;
+        const angle = baseAngle + spread;
+        const speed = 95 + Math.random() * 145;
+        wallSparksRef.current.push({
+          x: hitX,
+          y: hitY,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 0,
+          maxLife: 0.28 + Math.random() * 0.14,
+          size: i % 2 === 0 ? 5 : 4,
+        });
       }
-    }
-  }, []);
+    },
+    []
+  );
+
+  const enterGrabbedHockeyMode = useCallback(
+    (initialX: number, initialY: number) => {
+      if (longPressTimerRef.current !== null) {
+        window.clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+      if (hockeyModeRef.current !== 'idle') return;
+
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const clampedX = Math.max(22, Math.min(w - 22, initialX));
+      const clampedY = Math.max(22, Math.min(h - 22, initialY));
+      const now = performance.now();
+
+      setViewportSize({ w, h });
+      puckPosRef.current = { x: clampedX, y: clampedY, vx: 0, vy: 0 };
+      if (pointerHistoryRef.current.length === 0) {
+        pointerHistoryRef.current = [{ x: clampedX, y: clampedY, t: now }];
+      } else {
+        pointerHistoryRef.current.push({ x: clampedX, y: clampedY, t: now });
+      }
+      wallSparksRef.current = [];
+
+      if (isSleepHoursRef.current) {
+        clearNightTimers();
+        setNightPhase('confused');
+        setPuckExpression('confused');
+      } else {
+        setPuckExpression('happy');
+      }
+
+      hockeyModeRef.current = 'grabbed';
+      setHockeyMode('grabbed');
+
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        try {
+          navigator.vibrate(18);
+        } catch {
+          // Ignorar restricciones de vibración
+        }
+      }
+    },
+    [clearNightTimers]
+  );
 
   // Seguimiento fluido del dedo o ratón mientras Bug está agarrado (modo Air Hockey)
   useEffect(() => {
@@ -637,8 +947,8 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
       const now = performance.now();
       const w = window.innerWidth;
       const h = window.innerHeight;
-      const clampedX = Math.max(16, Math.min(w - 16, clientX));
-      const clampedY = Math.max(16, Math.min(h - 16, clientY));
+      const clampedX = Math.max(22, Math.min(w - 22, clientX));
+      const clampedY = Math.max(22, Math.min(h - 22, clientY));
 
       puckPosRef.current.x = clampedX;
       puckPosRef.current.y = clampedY;
@@ -698,7 +1008,6 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
 
       const rawSpeed = Math.hypot(vx, vy);
       if (rawSpeed < 50) {
-        // Si se soltó quieto sin lanzarlo, se teletransporta de vuelta a su sitio habitual
         teleportBackFromPosition(puckPosRef.current.x, puckPosRef.current.y);
         return;
       }
@@ -709,7 +1018,7 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
       puckPosRef.current.vx = vx * scale;
       puckPosRef.current.vy = vy * scale;
       setViewportSize({ w: window.innerWidth, h: window.innerHeight });
-      setPuckExpression('happy');
+      setPuckExpression(isSleepHoursRef.current ? 'confused' : 'happy');
       bounceHappyUntilRef.current = now + 340;
       hockeyModeRef.current = 'flying';
       setHockeyMode('flying');
@@ -737,7 +1046,7 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
     if (hockeyMode !== 'flying') return;
 
     let lastTs = performance.now();
-    let currentExpr: BugEyeExpression = 'happy';
+    let currentExpr: BugEyeExpression = isSleepHoursRef.current ? 'confused' : 'happy';
 
     const stepPhysics = (now: number) => {
       const dt = Math.min(0.032, Math.max(0.001, (now - lastTs) / 1000));
@@ -745,10 +1054,10 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
 
       const w = window.innerWidth;
       const h = window.innerHeight;
-      const minX = 16;
-      const maxX = Math.max(minX + 1, w - 16);
-      const minY = 16;
-      const maxY = Math.max(minY + 1, h - 16);
+      const minX = 22;
+      const maxX = Math.max(minX + 1, w - 22);
+      const minY = 22;
+      const maxY = Math.max(minY + 1, h - 22);
 
       const state = puckPosRef.current;
       state.x += state.vx * dt;
@@ -788,7 +1097,9 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
         bounceHappyUntilRef.current = now + 280;
       }
 
-      const desiredExpr: BugEyeExpression = isAlarmRinging
+      const desiredExpr: BugEyeExpression = isSleepHoursRef.current
+        ? 'confused'
+        : isAlarmRinging
         ? 'scared'
         : now < bounceHappyUntilRef.current
         ? 'happy'
@@ -931,7 +1242,6 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
 
     if (dist >= 8) {
       if (canLaunchHockey) {
-        // Si el usuario desliza el dedo sobre Bug, lo coge como círculo completo al instante para lanzarlo
         enterGrabbedHockeyMode(e.clientX, e.clientY);
       } else {
         clearPendingHold();
@@ -949,7 +1259,6 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
       // Ignorar
     }
 
-    // Si ya está agarrado o volando, el listener global se encarga del lanzamiento
     if (hockeyModeRef.current !== 'idle') return;
 
     const wasQuickTap = isPressingRef.current;
@@ -968,28 +1277,63 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
     }
   };
 
-  const resolvedExpression: BugEyeExpression = isAlarmRinging
-    ? 'scared'
-    : localPetPhase === 'blink'
-    ? 'blink'
-    : localPetPhase === 'happy'
-    ? 'happy'
-    : globalMood === 'sad'
-    ? 'sad'
-    : globalMood === 'happy'
-    ? 'happy'
-    : isIdleBlinking
-    ? 'blink'
-    : 'neutral';
-
   const isDetached = hockeyMode !== 'idle';
+  const effectiveNightSleepMode = isSleepHours && musicMode !== 'on';
+  const isDancingToMusic =
+    !isDetached &&
+    isMusicPlaying &&
+    !isAlarmRinging &&
+    activeJumpAnim === 'none' &&
+    !isTeleportingIn &&
+    !effectiveNightSleepMode;
 
-  const perchedMotionClass = isAlarmRinging
-    ? 'animate-bug-scared'
+  let resolvedExpression: BugEyeExpression;
+  if (effectiveNightSleepMode) {
+    if (isAlarmRinging || nightPhase === 'confused') {
+      resolvedExpression = 'confused';
+    } else if (nightPhase === 'pet-happy') {
+      resolvedExpression = 'happy';
+    } else if (nightPhase === 'settling-blink') {
+      resolvedExpression = 'blink';
+    } else {
+      resolvedExpression = 'sleeping';
+    }
+  } else if (isAlarmRinging) {
+    resolvedExpression = 'scared';
+  } else if (localPetPhase === 'blink') {
+    resolvedExpression = 'blink';
+  } else if (localPetPhase === 'happy') {
+    resolvedExpression = 'happy';
+  } else if (isDancingToMusic) {
+    resolvedExpression = isIdleBlinking ? 'blink' : 'happy';
+  } else if (globalMood === 'sad') {
+    resolvedExpression = 'sad';
+  } else if (globalMood === 'happy') {
+    resolvedExpression = 'happy';
+  } else if (isIdleBlinking) {
+    resolvedExpression = 'blink';
+  } else {
+    resolvedExpression = 'neutral';
+  }
+
+  const showSleepingZzz =
+    !isDetached && effectiveNightSleepMode && resolvedExpression === 'sleeping';
+  const showMusicNotes = isDancingToMusic;
+
+  const perchedMotionClass = isTeleportingIn
+    ? 'animate-bug-teleport-in'
+    : isAlarmRinging
+    ? effectiveNightSleepMode
+      ? 'animate-bug-confused'
+      : 'animate-bug-scared'
     : activeJumpAnim === 'trophy'
     ? 'animate-bug-trophy-jump'
+    : activeJumpAnim === 'confused'
+    ? 'animate-bug-confused'
     : activeJumpAnim === 'top-hop'
     ? 'animate-bug-top-hop'
+    : isDancingToMusic
+    ? 'animate-bug-music-dance'
     : teleportKey > 0
     ? 'animate-bug-teleport-in'
     : '';
@@ -1034,8 +1378,8 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
       >
         <svg
           key={`${teleportKey}-${jumpAnimKey}-${isAlarmRinging ? 'alarm' : 'calm'}`}
-          viewBox="-10 -12 36 26"
-          className={`w-[54px] h-[39px] -mx-[11px] -mt-[11px] block overflow-visible pointer-events-none ${
+          viewBox="-12 -14 40 28"
+          className={`w-[60px] h-[42px] -mx-[14px] -mt-[14px] block overflow-visible pointer-events-none ${
             isDetached ? 'opacity-0' : perchedMotionClass
           }`}
           shapeRendering="crispEdges"
@@ -1053,6 +1397,10 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
             expression={resolvedExpression}
             gazeX={gazeOffset.x}
             gazeY={gazeOffset.y}
+            hat={equippedHat}
+            hatColor={equippedHatColor}
+            showSleepingZzz={showSleepingZzz}
+            showMusicNotes={showMusicNotes}
           />
           <g ref={petSparksGroupRef} />
         </svg>
@@ -1099,12 +1447,26 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
                     fill="var(--app-accent-fill)"
                     fillOpacity={0.4}
                   />
-                  <BugPixelGraphic expression="happy" gazeX={0} gazeY={0} isFullCircle />
+                  <BugPixelGraphic
+                    expression={effectiveNightSleepMode ? 'confused' : 'happy'}
+                    gazeX={0}
+                    gazeY={0}
+                    isFullCircle
+                    hat={equippedHat}
+                    hatColor={equippedHatColor}
+                  />
                 </g>
               </g>
             ) : (
               <g ref={flyingPuckGroupRef}>
-                <BugPixelGraphic expression={puckExpression} gazeX={0} gazeY={0} isFullCircle />
+                <BugPixelGraphic
+                  expression={puckExpression}
+                  gazeX={0}
+                  gazeY={0}
+                  isFullCircle
+                  hat={equippedHat}
+                  hatColor={equippedHatColor}
+                />
               </g>
             )}
           </svg>,
@@ -1216,7 +1578,7 @@ interface BugUnlockBannerProps {
 
 /**
  * Cuadro emergente estilo logro Nothing OS × Cyberpunk al descubrir a Bug (Nivel 3),
- * desbloquear acariciarlo (Nivel 4) o desbloquear jugar con él / lanzarlo (Nivel 5).
+ * desbloquear acariciarlo (Nivel 4), jugar con él (Nivel 5) o desbloquear gorros (Nivel 25).
  */
 export const BugUnlockBanner: React.FC<BugUnlockBannerProps> = ({
   milestone,
@@ -1225,7 +1587,13 @@ export const BugUnlockBanner: React.FC<BugUnlockBannerProps> = ({
   const { language } = useI18n();
   const copy = getBugMilestoneCopy(milestone, language);
   const isPlayMilestone = milestone === 'level5';
-  const litSlotsCount = milestone === 'level5' ? 5 : milestone === 'level4' ? 3 : 2;
+  const isCustomMilestone = milestone === 'level25';
+  const litSlotsCount =
+    milestone === 'level25' || milestone === 'level5'
+      ? 5
+      : milestone === 'level4'
+      ? 3
+      : 2;
 
   return (
     <div
@@ -1241,18 +1609,18 @@ export const BugUnlockBanner: React.FC<BugUnlockBannerProps> = ({
 
       <div className="relative w-16 h-16 trophy-oled-window border border-accent-fill flex items-center justify-center shrink-0 overflow-hidden animate-trophy-emblem">
         <svg
-          viewBox="-4 -4 24 24"
+          viewBox="-5 -5 26 24"
           className="w-12 h-12 block"
           shapeRendering="crispEdges"
           aria-hidden="true"
         >
           {/* Chispas decorativas 8-bits en el emblema de desbloqueo */}
-          <rect x={-2} y={1} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
-          <rect x={16.5} y={0} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
-          {isPlayMilestone && (
+          <rect x={-3} y={0} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
+          <rect x={17.5} y={-1} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
+          {(isPlayMilestone || isCustomMilestone) && (
             <>
-              <rect x={-2.5} y={11} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
-              <rect x={17} y={12} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
+              <rect x={-3.5} y={11} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
+              <rect x={18} y={12} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
             </>
           )}
           <BugPixelGraphic
@@ -1260,6 +1628,8 @@ export const BugUnlockBanner: React.FC<BugUnlockBannerProps> = ({
             gazeX={0}
             gazeY={0}
             isFullCircle={isPlayMilestone}
+            hat={isCustomMilestone ? 'headphones' : 'none'}
+            hatColor={DEFAULT_BUG_HAT_COLORS.headphones}
           />
         </svg>
       </div>
