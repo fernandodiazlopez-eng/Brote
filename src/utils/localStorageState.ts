@@ -381,9 +381,8 @@ function sanitizeBugSelectedHat(raw: unknown): BugHatId | undefined {
 }
 
 function sanitizeBugMusicMode(raw: unknown): BugMusicMode | undefined {
-  if (raw === 'auto' || raw === 'on' || raw === 'off') {
-    return raw;
-  }
+  if (raw === 'on') return 'on';
+  if (raw === 'off' || raw === 'auto') return 'off';
   return undefined;
 }
 

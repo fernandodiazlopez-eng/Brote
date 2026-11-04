@@ -137,7 +137,7 @@ export interface RgbColor {
   b: number;
 }
 
-export type BugMusicMode = 'auto' | 'on' | 'off';
+export type BugMusicMode = 'on' | 'off';
 
 export interface AppPersistentState {
   firstOpenDateIso: string;
@@ -172,7 +172,7 @@ export interface AppPersistentState {
   bugUnlockedHats?: BugWearableHatId[]; // gorros desbloqueados permanentemente
   bugSelectedHat?: BugHatId; // gorro equipado por Bug (Nivel 25+)
   bugHatColors?: Partial<Record<BugWearableHatId, RgbColor>>; // color RGB por cada gorro
-  bugMusicMode?: BugMusicMode; // reacción de baile con música ('auto' por defecto)
+  bugMusicMode?: BugMusicMode; // opción para que Bug baile o no ('off' por defecto)
   hideBug?: boolean; // opción en Ajustes para ocultar o mostrar a Bug tras desbloquearlo
   muteBugText?: boolean; // opción en Ajustes para silenciar el tren de texto («Bug dice:»)
   muteBugBounceSound?: boolean; // opción en Ajustes para silenciar el sonido de rebote al lanzar a Bug

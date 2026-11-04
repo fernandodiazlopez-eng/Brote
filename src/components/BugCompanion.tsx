@@ -42,7 +42,6 @@ export interface BugReactionContextValue {
   tabTeleportToken: number;
   muteBounceSound: boolean;
   isSleepHours: boolean;
-  isMusicPlaying: boolean;
   musicMode: BugMusicMode;
   equippedHat: BugHatId;
   equippedHatColor: RgbColor;
@@ -59,8 +58,7 @@ export const BugReactionContext = createContext<BugReactionContextValue>({
   tabTeleportToken: 0,
   muteBounceSound: false,
   isSleepHours: false,
-  isMusicPlaying: false,
-  musicMode: 'auto',
+  musicMode: 'off',
   equippedHat: 'none',
   equippedHatColor: DEFAULT_BUG_HAT_COLORS.headphones,
   isGrown: false,
@@ -582,7 +580,6 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
     tabTeleportToken,
     muteBounceSound,
     isSleepHours,
-    isMusicPlaying,
     musicMode,
     equippedHat,
     equippedHatColor,
@@ -1582,7 +1579,7 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
   const effectiveNightSleepMode = isSleepHours && musicMode !== 'on';
   const isDancingToMusic =
     !isDetached &&
-    isMusicPlaying &&
+    musicMode === 'on' &&
     !isAlarmRinging &&
     activeJumpAnim === 'none' &&
     !isTeleportingIn &&

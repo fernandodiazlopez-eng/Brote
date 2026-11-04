@@ -58,7 +58,6 @@ export default defineConfig(() => {
           skipWaiting: true,
           clientsClaim: true,
           cleanupOutdatedCaches: true,
-          navigateFallbackDenylist: [/^\/api\//, /^\/auth\//],
           globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,ttf,woff,woff2,webmanifest}'],
           globIgnores: ['**/assets/aistudio/**'],
           runtimeCaching: [

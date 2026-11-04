@@ -44,7 +44,6 @@ import {
   sanitizeRgbColor,
 } from './data/bugCompanionData';
 import { findNewlyUnlockedTrophies } from './data/trophiesCatalog';
-import { useMediaPlaybackDetection } from './hooks/useMediaPlaybackDetection';
 import { useMobileStepSensor } from './hooks/useMobileStepSensor';
 import { I18nContext, I18nContextValue } from './i18n/I18nContext';
 import {
@@ -259,8 +258,7 @@ export default function App() {
   const hideBug = Boolean(appState.hideBug);
   const showBug = isBugUnlocked && !hideBug;
 
-  const bugMusicMode: BugMusicMode = appState.bugMusicMode ?? 'auto';
-  const isMusicPlaying = useMediaPlaybackDetection(bugMusicMode);
+  const bugMusicMode: BugMusicMode = appState.bugMusicMode === 'on' ? 'on' : 'off';
 
   const bugUnlockedHats = useMemo<BugWearableHatId[]>(() => {
     const unlocked = new Set<BugWearableHatId>(appState.bugUnlockedHats ?? []);
@@ -2455,7 +2453,6 @@ export default function App() {
       tabTeleportToken,
       muteBounceSound: Boolean(appState.muteBugBounceSound),
       isSleepHours,
-      isMusicPlaying,
       musicMode: bugMusicMode,
       equippedHat,
       equippedHatColor,
@@ -2471,7 +2468,6 @@ export default function App() {
       tabTeleportToken,
       appState.muteBugBounceSound,
       isSleepHours,
-      isMusicPlaying,
       bugMusicMode,
       equippedHat,
       equippedHatColor,
@@ -2802,7 +2798,6 @@ export default function App() {
               onChangeTimerNotifications={handleChangeTimerNotifications}
               motionStepsEnabled={Boolean(appState.motionStepsEnabled)}
               onChangeMotionSteps={handleChangeMotionSteps}
-              isMusicPlaying={isMusicPlaying}
               onTriggerSecretBugMessage={handleTriggerSecretBugMessage}
             />
           )}

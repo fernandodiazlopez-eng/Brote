@@ -221,10 +221,9 @@ export const DEFAULT_ES_TEXTS = {
   settings_bug_hide: 'Ocultar',
   settings_bug_text_label: 'Texto de Bug',
   settings_bug_bounce_sound_label: 'Ruido al rebotar',
-  settings_bug_music_label: 'Baile con música',
-  settings_bug_music_auto: 'Auto',
-  settings_bug_music_on: 'Siempre',
-  settings_bug_music_off: 'No',
+  settings_bug_music_label: 'Baile de Bug',
+  settings_bug_music_on: 'Activado',
+  settings_bug_music_off: 'Desactivado',
   settings_bug_unmuted: 'Activado',
   settings_bug_muted: 'Silenciado',
   settings_bug_hats_heading: 'Gorros y accesorios',
@@ -356,15 +355,6 @@ export const DEFAULT_ES_TEXTS = {
   steps_pocket_unlock_btn: 'Toca 2 veces para salir',
   settings_motion_steps_note:
     'Por seguridad de Android e iOS, el navegador pausa los sensores al cerrar la app o bloquear con botón físico. Usa «Modo bolsillo (OLED)» en Pasos para caminar con la pantalla negra.',
-  settings_bug_spotify_connect_btn: 'Vincular Spotify',
-  settings_bug_spotify_connected: 'Spotify vinculado',
-  settings_bug_spotify_disconnect_btn: 'Desvincular',
-  settings_bug_spotify_missing_env:
-    'Añade SPOTIFY_CLIENT_ID en las variables de entorno de la app para vincular Spotify.',
-  settings_bug_spotify_popup_blocked:
-    'Permite ventanas emergentes en tu navegador para completar la conexión con Spotify.',
-  settings_bug_music_external_hint:
-    'Los navegadores móviles aíslan el audio de otras apps: vincula Spotify para detección automática o elige «Siempre».',
 } as const;
 
 export type UiTextKey = keyof typeof DEFAULT_ES_TEXTS;
@@ -583,9 +573,8 @@ export const DEFAULT_EN_TEXTS: UiTextsMap = {
   settings_bug_hide: 'Hide',
   settings_bug_text_label: 'Bug text',
   settings_bug_bounce_sound_label: 'Bounce sound',
-  settings_bug_music_label: 'Dance to music',
-  settings_bug_music_auto: 'Auto',
-  settings_bug_music_on: 'Always',
+  settings_bug_music_label: 'Bug dance',
+  settings_bug_music_on: 'On',
   settings_bug_music_off: 'Off',
   settings_bug_unmuted: 'On',
   settings_bug_muted: 'Muted',
@@ -718,15 +707,6 @@ export const DEFAULT_EN_TEXTS: UiTextsMap = {
   steps_pocket_unlock_btn: 'Double-tap to exit',
   settings_motion_steps_note:
     'Due to Android & iOS security, browsers pause sensors if the app is closed or hardware-locked. Use "Pocket mode (OLED)" in Steps to walk with a black screen.',
-  settings_bug_spotify_connect_btn: 'Connect Spotify',
-  settings_bug_spotify_connected: 'Spotify linked',
-  settings_bug_spotify_disconnect_btn: 'Disconnect',
-  settings_bug_spotify_missing_env:
-    'Add SPOTIFY_CLIENT_ID in the app environment variables to link Spotify.',
-  settings_bug_spotify_popup_blocked:
-    'Please allow popups in your browser to complete Spotify sign-in.',
-  settings_bug_music_external_hint:
-    'Mobile browsers isolate audio from other apps: link Spotify for automatic detection or select "Always".',
 };
 
 export const DEFAULT_UI_TEXTS: Record<AppLanguage, UiTextsMap> = {
@@ -1016,7 +996,7 @@ export const UI_TEXT_SECTIONS: UiTextSectionMeta[] = [
       { key: 'settings_bug_hide', labelEs: 'Opción Ocultar a Bug', labelEn: 'Hide Bug option' },
       { key: 'settings_bug_text_label', labelEs: 'Etiqueta Texto de Bug', labelEn: 'Bug text label' },
       { key: 'settings_bug_bounce_sound_label', labelEs: 'Etiqueta Ruido al rebotar', labelEn: 'Bounce sound label' },
-      { key: 'settings_bug_music_label', labelEs: 'Etiqueta Baile con música', labelEn: 'Dance to music label' },
+      { key: 'settings_bug_music_label', labelEs: 'Etiqueta Baile de Bug', labelEn: 'Bug dance label' },
       { key: 'settings_bug_hats_heading', labelEs: 'Sección Gorros y accesorios', labelEn: 'Hats & accessories heading' },
       { key: 'settings_bug_hat_headphones', labelEs: 'Gorro Cascos de música', labelEn: 'Music headphones hat' },
       { key: 'settings_bug_hat_bow', labelEs: 'Gorro Lacito', labelEn: 'Bow hat' },

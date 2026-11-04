@@ -113,7 +113,6 @@ interface ProfileViewProps {
   onChangeTimerNotifications?: (enabled: boolean) => void;
   motionStepsEnabled?: boolean;
   onChangeMotionSteps?: (enabled: boolean) => void;
-  isMusicPlaying?: boolean;
   onTriggerSecretBugMessage?: () => void;
 }
 
@@ -175,7 +174,7 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
   onChangeMuteBugText,
   muteBugBounceSound = false,
   onChangeMuteBugBounceSound,
-  bugMusicMode = 'auto',
+  bugMusicMode = 'off',
   onChangeBugMusicMode,
   bugSelectedHat = 'none',
   onChangeBugSelectedHat,
@@ -204,7 +203,6 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
   onChangeTimerNotifications,
   motionStepsEnabled = false,
   onChangeMotionSteps,
-  isMusicPlaying = false,
   onTriggerSecretBugMessage,
 }) => {
   const { language, locale, t, formatCategory } = useI18n();
@@ -1285,7 +1283,6 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
         onChangeTimerNotifications={onChangeTimerNotifications}
         motionStepsEnabled={motionStepsEnabled}
         onChangeMotionSteps={onChangeMotionSteps}
-        isMusicPlaying={isMusicPlaying}
       />
 
       {/* Modal para asignar o quitar rutinas del día seleccionado */}
