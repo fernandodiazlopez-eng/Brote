@@ -22,7 +22,12 @@ import {
   computeAllMuscleStatuses,
   getLocalizedMuscleLabel,
 } from '../utils/muscleRecovery';
-import { BugGlobalMood, BugPerch } from './BugCompanion';
+import {
+  BugGlobalMood,
+  BugLevel100FinaleActor,
+  BugLevel100FinalePhase,
+  BugPerch,
+} from './BugCompanion';
 
 interface MuscleRecoveryMapProps {
   todayIso: string;
@@ -34,6 +39,7 @@ interface MuscleRecoveryMapProps {
   bugMood?: BugGlobalMood;
   canPetBug?: boolean;
   canLaunchBugHockey?: boolean;
+  finalePhase?: BugLevel100FinalePhase | null;
 }
 
 function getZoneStateClass(state: MuscleFatigueState): string {
@@ -58,6 +64,7 @@ export const MuscleRecoveryMap: React.FC<MuscleRecoveryMapProps> = React.memo(({
   bugMood = 'none',
   canPetBug = false,
   canLaunchBugHockey = false,
+  finalePhase = null,
 }) => {
   const { t } = useI18n();
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
@@ -325,14 +332,18 @@ export const MuscleRecoveryMap: React.FC<MuscleRecoveryMapProps> = React.memo(({
       </svg>
 
       {/* Bug apoyado en la zona inferior izquierda, cerca de los pies del avatar holográfico */}
-      {showBug && (
+      {(showBug || finalePhase) && (
         <div className="absolute bottom-0.5 left-[calc(50%-64px)] sm:left-[calc(50%-72px)] z-10 flex items-end">
-          <BugPerch
-            gazeMode="avatar-front"
-            globalMood={bugMood}
-            canPet={canPetBug}
-            canLaunchHockey={canLaunchBugHockey}
-          />
+          {finalePhase ? (
+            <BugLevel100FinaleActor phase={finalePhase} />
+          ) : (
+            <BugPerch
+              gazeMode="avatar-front"
+              globalMood={bugMood}
+              canPet={canPetBug}
+              canLaunchHockey={canLaunchBugHockey}
+            />
+          )}
         </div>
       )}
 

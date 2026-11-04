@@ -15,13 +15,21 @@ import { createPortal } from 'react-dom';
 import {
   clampRgbByte,
   DEFAULT_BUG_HAT_COLORS,
+  getBugLevel100FinaleCopy,
   getBugMilestoneCopy,
   getMilestonePreviewConfig,
   getResolvedBugHatColor,
 } from '../data/bugCompanionData';
 import { useI18n } from '../i18n/I18nContext';
 import { BugHatId, BugMusicMode, BugUnlockMilestone, RgbColor } from '../types';
-import { playBugBounceSound, playBugSuperSaiyanSound } from '../utils/audioEffects';
+import {
+  playBugBounceSound,
+  playBugFinaleRevealSound,
+  playBugSadGhostMusic,
+  playBugSuperSaiyanSound,
+  playBugVanishSound,
+  playBugWeakSighSound,
+} from '../utils/audioEffects';
 
 export type BugEyeExpression =
   | 'neutral'
@@ -85,6 +93,10 @@ const BUG_PERCHED_BODY_PATH =
 const BUG_FULL_CIRCLE_PATH =
   'M5 0h6v1H5zM3 1h10v1H3zM2 2h12v1H2zM1 3h14v2H1zM0 5h16v6H0zM1 11h14v2H1zM2 13h12v1H2zM3 14h10v1H3zM5 15h6v1H5z';
 
+/** Silueta espectral 8-bits con cola ondulada de fantasma en la base (Escena Nivel 100). */
+const BUG_GHOST_BODY_PATH =
+  'M5 0h6v1H5zM3 1h10v1H3zM2 2h12v1H2zM1 3h14v2H1zM0 5h16v8H0zM0 13h3v1H0zM5 13h2v1H5zM9 13h2v1H9zM13 13h3v1H13zM0 14h2v1H0zM5 14h2v1H5zM9 14h2v1H9zM14 14h2v1H14z';
+
 function buildHatShades(color: RgbColor): { main: string; hi: string; shade: string } {
   const r = clampRgbByte(color.r);
   const g = clampRgbByte(color.g);
@@ -113,6 +125,7 @@ interface BugPixelGraphicProps {
   showMusicNotes?: boolean;
   isGrown?: boolean;
   isSuperSaiyan?: boolean;
+  isGhost?: boolean;
 }
 
 export const BugPixelGraphic: React.FC<BugPixelGraphicProps> = React.memo(({
@@ -126,9 +139,10 @@ export const BugPixelGraphic: React.FC<BugPixelGraphicProps> = React.memo(({
   showMusicNotes = false,
   isGrown = false,
   isSuperSaiyan = false,
+  isGhost = false,
 }) => {
   const resolvedHatShades =
-    hat === 'none'
+    hat === 'none' || isGhost
       ? null
       : buildHatShades(hatColor ?? getResolvedBugHatColor(hat));
 
@@ -138,9 +152,37 @@ export const BugPixelGraphic: React.FC<BugPixelGraphicProps> = React.memo(({
       : 'translate(8 14) scale(1.13) translate(-8 -14)'
     : undefined;
 
+  if (isGhost) {
+    return (
+      <g shapeRendering="crispEdges" transform={growthTransform}>
+        {/* Halo ectoplásmico tenue alrededor del fantasma */}
+        <path
+          d={BUG_GHOST_BODY_PATH}
+          fill="#7dd3fc"
+          fillOpacity={0.22}
+          transform="translate(-1 -1) scale(1.125)"
+        />
+        <path d={BUG_GHOST_BODY_PATH} fill="#dff6ff" fillOpacity={0.82} />
+        <rect x={3} y={2} width={3} height={1} fill="#ffffff" fillOpacity={0.85} />
+        <rect x={2} y={3} width={1} height={2} fill="#ffffff" fillOpacity={0.68} />
+        {/* Ojos tristes espectrales mirando al usuario */}
+        <g fill="#0c1929" fillOpacity={0.88}>
+          <rect x={4} y={6} width={2} height={1} />
+          <rect x={3} y={7} width={2} height={2} />
+          <rect x={10} y={6} width={2} height={1} />
+          <rect x={11} y={7} width={2} height={2} />
+        </g>
+        {/* Partículas etéreas flotantes */}
+        <rect x={-2} y={8} width={1} height={1} fill="#bae6fd" fillOpacity={0.72} />
+        <rect x={17} y={5} width={1} height={1} fill="#bae6fd" fillOpacity={0.72} />
+        <rect x={7} y={-3} width={2} height={1} fill="#e0f7ff" fillOpacity={0.5} />
+      </g>
+    );
+  }
+
   return (
     <g shapeRendering="crispEdges" transform={growthTransform}>
-      {/* Aura dorada llameante 8-bits Super Saiyajin (Nivel 90) detrás de Bug */}
+      {/* Aura dorada llameante 8-bits Super Bug (Nivel 90) detrás de Bug */}
       {isSuperSaiyan && (
         <g className="animate-bug-ssj-aura">
           <g fill="#ff9e00" fillOpacity={0.45}>
@@ -1974,3 +2016,314 @@ export const BugUnlockBanner: React.FC<BugUnlockBannerProps> = ({
     </div>
   );
 };
+
+export type BugLevel100FinalePhase =
+  | 'framing'
+  | 'zoom-in'
+  | 'unwell'
+  | 'dying'
+  | 'vanishing'
+  | 'ghost-music'
+  | 'suspense'
+  | 'reappear-joke'
+  | 'proud-pause'
+  | 'proud-line'
+  | 'zoom-out';
+
+/**
+ * Orquesta los tiempos exactos de la escena única de Nivel 100:
+ * zoom a Bug en Perfil -> malestar triste -> "Creo que me muero..." -> se desvanece ->
+ * fantasma con música triste -> silencio de suspense -> reaparece con broma -> pausa -> orgulloso de ti.
+ */
+export function useBugLevel100FinaleSequence(
+  isActive: boolean,
+  onComplete?: () => void
+): {
+  phase: BugLevel100FinalePhase | null;
+  dialogueText: string | null;
+} {
+  const { language } = useI18n();
+  const languageRef = useRef(language);
+  languageRef.current = language;
+
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
+
+  const [phase, setPhase] = useState<BugLevel100FinalePhase | null>(null);
+  const [dialogueKey, setDialogueKey] = useState<'unwell' | 'dying' | 'jokeReveal' | 'proud' | null>(
+    null
+  );
+
+  useEffect(() => {
+    if (!isActive) {
+      setPhase(null);
+      setDialogueKey(null);
+      return;
+    }
+
+    const timers: number[] = [];
+    let stopGhostMusic: (() => void) | null = null;
+
+    // Fotograma inicial sin escala para que la transición de zoom siempre se vea fluida al forzar Perfil
+    setPhase('framing');
+    setDialogueKey(null);
+
+    timers.push(
+      window.setTimeout(() => {
+        setPhase('zoom-in');
+      }, 120)
+    );
+
+    // 1.25s: Bug dice que se encuentra mal mirándote triste
+    timers.push(
+      window.setTimeout(() => {
+        setPhase('unwell');
+        setDialogueKey('unwell');
+        playBugWeakSighSound(false);
+      }, 1250)
+    );
+
+    // 4.65s: Bug dice "Creo que me muero..."
+    timers.push(
+      window.setTimeout(() => {
+        setPhase('dying');
+        setDialogueKey('dying');
+        playBugWeakSighSound(true);
+      }, 4650)
+    );
+
+    // 8.25s: Bug se desvanece poco a poco
+    timers.push(
+      window.setTimeout(() => {
+        setPhase('vanishing');
+        setDialogueKey(null);
+        playBugVanishSound();
+      }, 8250)
+    );
+
+    // 9.95s: Aparece como fantasma + suena música triste 8-bits (~5.9s)
+    timers.push(
+      window.setTimeout(() => {
+        setPhase('ghost-music');
+        setDialogueKey(null);
+        stopGhostMusic = playBugSadGhostMusic();
+      }, 9950)
+    );
+
+    // 15.85s: Termina la música triste -> silencio dramático de suspense (~2.3s)
+    timers.push(
+      window.setTimeout(() => {
+        setPhase('suspense');
+        setDialogueKey(null);
+      }, 15850)
+    );
+
+    // 18.15s: ¡Reaparece vivo y feliz! "¡Muero de ganas de ver cómo sigues progresando!"
+    timers.push(
+      window.setTimeout(() => {
+        if (stopGhostMusic) {
+          stopGhostMusic();
+          stopGhostMusic = null;
+        }
+        setPhase('reappear-joke');
+        setDialogueKey('jokeReveal');
+        playBugFinaleRevealSound(false);
+        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+          try {
+            navigator.vibrate([20, 30, 35]);
+          } catch {
+            // Ignorar restricciones de vibración
+          }
+        }
+      }, 18150)
+    );
+
+    // 22.65s: Pausa cálida mirándote antes de la frase final (1.85s)
+    timers.push(
+      window.setTimeout(() => {
+        setPhase('proud-pause');
+        setDialogueKey(null);
+      }, 22650)
+    );
+
+    // 24.50s: "Estoy muy orgulloso de ti."
+    timers.push(
+      window.setTimeout(() => {
+        setPhase('proud-line');
+        setDialogueKey('proud');
+        playBugFinaleRevealSound(true);
+      }, 24500)
+    );
+
+    // 28.70s: La cámara quita el zoom suavemente
+    timers.push(
+      window.setTimeout(() => {
+        setPhase('zoom-out');
+        setDialogueKey(null);
+      }, 28700)
+    );
+
+    // 29.75s: Fin de la escena -> persiste bugLevel100FinaleSeenAtIso
+    timers.push(
+      window.setTimeout(() => {
+        setPhase(null);
+        setDialogueKey(null);
+        onCompleteRef.current?.();
+      }, 29750)
+    );
+
+    return () => {
+      timers.forEach((id) => window.clearTimeout(id));
+      if (stopGhostMusic) {
+        stopGhostMusic();
+      }
+    };
+  }, [isActive]);
+
+  const copy = getBugLevel100FinaleCopy(language);
+  const dialogueText = dialogueKey ? copy[dialogueKey] : null;
+
+  return { phase, dialogueText };
+}
+
+interface BugLevel100FinaleActorProps {
+  phase: BugLevel100FinalePhase;
+}
+
+/**
+ * Actor 8-bits de Bug situado exactamente en su pedestal de Perfil durante el zoom de Nivel 100.
+ */
+export const BugLevel100FinaleActor: React.FC<BugLevel100FinaleActorProps> = React.memo(
+  ({ phase }) => {
+    const { equippedHat, equippedHatColor, isGrown } = useContext(BugReactionContext);
+    const [pauseBlink, setPauseBlink] = useState(false);
+
+    useEffect(() => {
+      if (phase !== 'proud-pause') {
+        setPauseBlink(false);
+        return;
+      }
+      const t1 = window.setTimeout(() => setPauseBlink(true), 680);
+      const t2 = window.setTimeout(() => setPauseBlink(false), 840);
+      return () => {
+        window.clearTimeout(t1);
+        window.clearTimeout(t2);
+      };
+    }, [phase]);
+
+    const isGhost = phase === 'ghost-music' || phase === 'suspense';
+    const showCelebrationSparks = phase === 'reappear-joke' || phase === 'proud-line';
+
+    let motionClass = '';
+    let expression: BugEyeExpression = 'sad';
+
+    if (phase === 'zoom-in') {
+      expression = 'sad';
+    } else if (phase === 'unwell') {
+      expression = 'sad';
+      motionClass = 'animate-bug-weak-tremble';
+    } else if (phase === 'dying') {
+      expression = 'sad';
+      motionClass = 'animate-bug-weak-slump';
+    } else if (phase === 'vanishing') {
+      expression = 'sad';
+      motionClass = 'animate-bug-fade-vanish';
+    } else if (isGhost) {
+      expression = 'sad';
+      motionClass = 'animate-bug-ghost-float';
+    } else if (phase === 'reappear-joke') {
+      expression = 'happy';
+      motionClass = 'animate-bug-pop-alive';
+    } else if (phase === 'proud-pause') {
+      expression = pauseBlink ? 'blink' : 'neutral';
+    } else if (phase === 'proud-line') {
+      expression = 'happy';
+      motionClass = 'animate-bug-top-hop';
+    } else if (phase === 'zoom-out') {
+      expression = 'happy';
+    }
+
+    return (
+      <div className="relative flex items-end justify-center select-none pointer-events-none">
+        <svg
+          key={
+            phase === 'reappear-joke'
+              ? 'revive'
+              : phase === 'proud-line'
+              ? 'proud'
+              : isGhost
+              ? 'ghost'
+              : phase === 'vanishing'
+              ? 'vanish'
+              : 'base'
+          }
+          viewBox="-12 -16 40 30"
+          className={`w-[60px] h-[45px] -mx-[14px] -mt-[17px] block overflow-visible ${motionClass}`}
+          shapeRendering="crispEdges"
+          aria-hidden="true"
+        >
+          <BugPixelGraphic
+            expression={expression}
+            gazeX={0}
+            gazeY={0}
+            hat={equippedHat}
+            hatColor={equippedHatColor}
+            isGrown={isGrown}
+            isGhost={isGhost}
+          />
+          {showCelebrationSparks && (
+            <g fill="var(--app-accent-fill)">
+              <rect x={-4} y={1} width={1.6} height={1.6} />
+              <rect x={18.5} y={0} width={1.6} height={1.6} />
+              <rect x={-2.5} y={-6} width={1.4} height={1.4} />
+              <rect x={17} y={-6.5} width={1.4} height={1.4} />
+            </g>
+          )}
+        </svg>
+      </div>
+    );
+  }
+);
+
+interface BugLevel100FinaleDialogueProps {
+  dialogueText: string | null;
+  phase: BugLevel100FinalePhase | null;
+}
+
+/**
+ * Panel LED nítido para leer cada línea de Bug durante el zoom de Nivel 100 (sin deformación por escala).
+ */
+export const BugLevel100FinaleDialogue: React.FC<BugLevel100FinaleDialogueProps> = React.memo(
+  ({ dialogueText, phase }) => {
+    const { t } = useI18n();
+    if (!dialogueText || !phase || typeof document === 'undefined') return null;
+
+    const isSadBeat = phase === 'unwell' || phase === 'dying';
+
+    return createPortal(
+      <div
+        role="status"
+        aria-live="assertive"
+        className="fixed left-4 right-4 bottom-10 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:w-[440px] z-[65] pointer-events-none select-none"
+      >
+        <div
+          key={`${phase}-${dialogueText}`}
+          className="bug-metro-panel px-4 py-3.5 flex items-start gap-3 animate-finale-dialogue-in"
+        >
+          <span
+            aria-hidden="true"
+            className={`w-[6px] h-[6px] mt-1.5 shrink-0 ${
+              isSadBeat ? 'bg-sky-300/80' : 'bg-accent-fill'
+            }`}
+          />
+          <p className="font-mono text-xs sm:text-[13px] leading-relaxed bug-metro-text">
+            <span className="font-bold mr-2">{t.bug_marquee_prefix}</span>
+            <span className="text-fg">{dialogueText}</span>
+          </p>
+        </div>
+      </div>,
+      document.body
+    );
+  }
+);
+

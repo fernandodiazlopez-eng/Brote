@@ -838,6 +838,313 @@ export function playBugSuperSaiyanSound(): void {
   }
 }
 
+/** Suspiro débil 8-bits cuando Bug dice que se encuentra mal en la escena de Nivel 100. */
+export function playBugWeakSighSound(lower = false): void {
+  try {
+    const ctx = getOrCreateAudioContext();
+    if (!ctx) return;
+
+    cancelScheduledSuspend();
+    activeSoundEffectsCount += 1;
+    if (ctx.state === 'suspended') {
+      void ctx.resume().catch(() => {});
+    }
+
+    const now = ctx.currentTime;
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0.5, now);
+    master.connect(ctx.destination);
+
+    const notes = lower
+      ? [
+          { freq: 293.66, start: 0, dur: 0.24 },
+          { freq: 246.94, start: 0.25, dur: 0.42 },
+        ]
+      : [
+          { freq: 329.63, start: 0, dur: 0.22 },
+          { freq: 293.66, start: 0.23, dur: 0.38 },
+        ];
+
+    notes.forEach((n) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(n.freq, now + n.start);
+      osc.frequency.exponentialRampToValueAtTime(n.freq * 0.94, now + n.start + n.dur);
+      gain.gain.setValueAtTime(0.0001, now + n.start);
+      gain.gain.linearRampToValueAtTime(0.14, now + n.start + 0.025);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + n.start + n.dur);
+      osc.connect(gain);
+      gain.connect(master);
+      osc.start(now + n.start);
+      osc.stop(now + n.start + n.dur + 0.02);
+    });
+
+    if (typeof window !== 'undefined') {
+      window.setTimeout(() => {
+        activeSoundEffectsCount = Math.max(0, activeSoundEffectsCount - 1);
+        try {
+          master.disconnect();
+        } catch {
+          // Ignorar errores de desconexión
+        }
+        scheduleAudioSuspendWhenIdle(120);
+      }, 760);
+    } else {
+      activeSoundEffectsCount = Math.max(0, activeSoundEffectsCount - 1);
+    }
+  } catch {
+    activeSoundEffectsCount = Math.max(0, activeSoundEffectsCount - 1);
+    scheduleAudioSuspendWhenIdle(120);
+  }
+}
+
+/** Desvanecimiento 8-bits descendente cuando Bug desaparece antes de volverse fantasma. */
+export function playBugVanishSound(): void {
+  try {
+    const ctx = getOrCreateAudioContext();
+    if (!ctx) return;
+
+    cancelScheduledSuspend();
+    activeSoundEffectsCount += 1;
+    if (ctx.state === 'suspended') {
+      void ctx.resume().catch(() => {});
+    }
+
+    const now = ctx.currentTime;
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0.5, now);
+    master.connect(ctx.destination);
+
+    const steps = [440, 392, 349.23, 293.66, 261.63, 220, 174.61];
+    steps.forEach((freq, idx) => {
+      const t0 = now + idx * 0.13;
+      const dur = 0.16;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, t0);
+      const peak = Math.max(0.02, 0.15 * (1 - idx * 0.12));
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.linearRampToValueAtTime(peak, t0 + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      osc.connect(gain);
+      gain.connect(master);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.02);
+    });
+
+    if (typeof window !== 'undefined') {
+      window.setTimeout(() => {
+        activeSoundEffectsCount = Math.max(0, activeSoundEffectsCount - 1);
+        try {
+          master.disconnect();
+        } catch {
+          // Ignorar errores de desconexión
+        }
+        scheduleAudioSuspendWhenIdle(120);
+      }, 1250);
+    } else {
+      activeSoundEffectsCount = Math.max(0, activeSoundEffectsCount - 1);
+    }
+  } catch {
+    activeSoundEffectsCount = Math.max(0, activeSoundEffectsCount - 1);
+    scheduleAudioSuspendWhenIdle(120);
+  }
+}
+
+/**
+ * Melodía triste 8-bits (caja de música retro en Re menor, ~5.2 s) mientras Bug flota como fantasma,
+ * dejando un silencio dramático de suspense al terminar. Devuelve función de limpieza.
+ */
+export function playBugSadGhostMusic(): () => void {
+  let cleanedUp = false;
+  let cleanupTimerId: number | null = null;
+  let masterNode: GainNode | null = null;
+
+  try {
+    const ctx = getOrCreateAudioContext();
+    if (!ctx) return () => {};
+
+    cancelScheduledSuspend();
+    activeSoundEffectsCount += 1;
+    if (ctx.state === 'suspended') {
+      void ctx.resume().catch(() => {});
+    }
+
+    const now = ctx.currentTime;
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0.58, now);
+    master.connect(ctx.destination);
+    masterNode = master;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(1650, now);
+    filter.connect(master);
+
+    // Melodía melancólica en Re menor (A4 -> F4 -> E4 -> D4 | Bb4 -> A4 -> G4 -> E4 | F4 -> E4 -> D4 -> C#4 -> D4)
+    const leadMelody = [
+      { freq: 440.0, start: 0.05, dur: 0.48 }, // A4
+      { freq: 349.23, start: 0.56, dur: 0.48 }, // F4
+      { freq: 329.63, start: 1.08, dur: 0.46 }, // E4
+      { freq: 293.66, start: 1.58, dur: 0.78 }, // D4
+      { freq: 466.16, start: 2.48, dur: 0.44 }, // Bb4
+      { freq: 440.0, start: 2.96, dur: 0.44 }, // A4
+      { freq: 392.0, start: 3.44, dur: 0.46 }, // G4
+      { freq: 329.63, start: 3.94, dur: 0.56 }, // E4
+      { freq: 349.23, start: 4.56, dur: 0.52 }, // F4
+      { freq: 277.18, start: 5.12, dur: 0.85 }, // C#4 (tensión triste en el aire)
+    ];
+
+    const bassNotes = [
+      { freq: 146.83, start: 0.05, dur: 1.15 }, // D3
+      { freq: 130.81, start: 1.25, dur: 1.15 }, // C3
+      { freq: 116.54, start: 2.48, dur: 1.38 }, // Bb2
+      { freq: 110.0, start: 3.94, dur: 1.95 }, // A2
+    ];
+
+    leadMelody.forEach((n) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(n.freq, now + n.start);
+      gain.gain.setValueAtTime(0.0001, now + n.start);
+      gain.gain.linearRampToValueAtTime(0.085, now + n.start + 0.025);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + n.start + n.dur);
+      osc.connect(gain);
+      gain.connect(filter);
+      osc.start(now + n.start);
+      osc.stop(now + n.start + n.dur + 0.03);
+    });
+
+    bassNotes.forEach((n) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(n.freq, now + n.start);
+      gain.gain.setValueAtTime(0.0001, now + n.start);
+      gain.gain.linearRampToValueAtTime(0.14, now + n.start + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + n.start + n.dur);
+      osc.connect(gain);
+      gain.connect(master);
+      osc.start(now + n.start);
+      osc.stop(now + n.start + n.dur + 0.03);
+    });
+
+    if (typeof window !== 'undefined') {
+      cleanupTimerId = window.setTimeout(() => {
+        if (cleanedUp) return;
+        cleanedUp = true;
+        activeSoundEffectsCount = Math.max(0, activeSoundEffectsCount - 1);
+        try {
+          filter.disconnect();
+          master.disconnect();
+        } catch {
+          // Ignorar errores de desconexión
+        }
+        scheduleAudioSuspendWhenIdle(150);
+      }, 6150);
+    }
+  } catch {
+    if (!cleanedUp) {
+      cleanedUp = true;
+      activeSoundEffectsCount = Math.max(0, activeSoundEffectsCount - 1);
+      scheduleAudioSuspendWhenIdle(120);
+    }
+  }
+
+  return () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    if (cleanupTimerId !== null && typeof window !== 'undefined') {
+      window.clearTimeout(cleanupTimerId);
+    }
+    activeSoundEffectsCount = Math.max(0, activeSoundEffectsCount - 1);
+    try {
+      if (masterNode && sharedAudioContext) {
+        masterNode.gain.setValueAtTime(0.0001, sharedAudioContext.currentTime);
+        masterNode.disconnect();
+      }
+    } catch {
+      // Ignorar errores de desconexión
+    }
+    scheduleAudioSuspendWhenIdle(120);
+  };
+}
+
+/** Fanfarria alegre 8-bits al reaparecer Bug tras la broma o acorde cálido al decir que está orgulloso. */
+export function playBugFinaleRevealSound(isProudEnding = false): void {
+  try {
+    const ctx = getOrCreateAudioContext();
+    if (!ctx) return;
+
+    cancelScheduledSuspend();
+    activeSoundEffectsCount += 1;
+    if (ctx.state === 'suspended') {
+      void ctx.resume().catch(() => {});
+    }
+
+    const now = ctx.currentTime;
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0.55, now);
+    master.connect(ctx.destination);
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(2800, now);
+    filter.connect(master);
+
+    const notes = isProudEnding
+      ? [
+          { freq: 293.66, start: 0.0, dur: 0.22 }, // D4
+          { freq: 369.99, start: 0.11, dur: 0.24 }, // F#4
+          { freq: 440.0, start: 0.22, dur: 0.26 }, // A4
+          { freq: 554.37, start: 0.34, dur: 0.32 }, // C#5
+          { freq: 587.33, start: 0.48, dur: 0.65 }, // D5
+        ]
+      : [
+          { freq: 587.33, start: 0.0, dur: 0.1 }, // D5 pop!
+          { freq: 739.99, start: 0.08, dur: 0.1 }, // F#5
+          { freq: 880.0, start: 0.16, dur: 0.12 }, // A5
+          { freq: 1174.66, start: 0.26, dur: 0.36 }, // D6!
+        ];
+
+    notes.forEach((n) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = isProudEnding ? 'triangle' : 'square';
+      osc.frequency.setValueAtTime(n.freq, now + n.start);
+      gain.gain.setValueAtTime(0.0001, now + n.start);
+      gain.gain.linearRampToValueAtTime(isProudEnding ? 0.16 : 0.1, now + n.start + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + n.start + n.dur);
+      osc.connect(gain);
+      gain.connect(filter);
+      osc.start(now + n.start);
+      osc.stop(now + n.start + n.dur + 0.02);
+    });
+
+    if (typeof window !== 'undefined') {
+      window.setTimeout(() => {
+        activeSoundEffectsCount = Math.max(0, activeSoundEffectsCount - 1);
+        try {
+          filter.disconnect();
+          master.disconnect();
+        } catch {
+          // Ignorar errores de desconexión
+        }
+        scheduleAudioSuspendWhenIdle(120);
+      }, 1250);
+    } else {
+      activeSoundEffectsCount = Math.max(0, activeSoundEffectsCount - 1);
+    }
+  } catch {
+    activeSoundEffectsCount = Math.max(0, activeSoundEffectsCount - 1);
+    scheduleAudioSuspendWhenIdle(120);
+  }
+}
+
+
 function playAlarmChimeWebAudioOnce(playSound = true): void {
   try {
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {

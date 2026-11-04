@@ -369,16 +369,40 @@ export default function App() {
   const nextPulseIdRef = useRef<number>(0);
   const [xpPulseToken, setXpPulseToken] = useState<number>(0);
   const [lastXpGain, setLastXpGain] = useState<number>(0);
+  const [isLevel100FinaleOpen, setIsLevel100FinaleOpen] = useState<boolean>(false);
+  const [isPocketModeActive, setIsPocketModeActive] = useState<boolean>(false);
 
-  const handleSelectTab = useCallback((nextTab: AppTab) => {
-    if (nextTab !== AppTab.PROFILE) {
-      setXpPulseToken(0);
-    }
-    setActiveTab((prevTab) => {
-      if (prevTab !== nextTab) {
-        setTabTeleportToken((n) => n + 1);
+  const handleSelectTab = useCallback(
+    (nextTab: AppTab) => {
+      if (isLevel100FinaleOpen) return;
+      if (nextTab !== AppTab.PROFILE) {
+        setXpPulseToken(0);
       }
-      return nextTab;
+      setActiveTab((prevTab) => {
+        if (prevTab !== nextTab) {
+          setTabTeleportToken((n) => n + 1);
+        }
+        return nextTab;
+      });
+    },
+    [isLevel100FinaleOpen]
+  );
+
+  const handleCompleteLevel100Finale = useCallback(() => {
+    const realToday = getTodayDateIso();
+    setIsLevel100FinaleOpen(false);
+    setAppState((prev) => {
+      if (prev.bugLevel100FinaleSeenAtIso) return prev;
+      const updated: AppPersistentState = {
+        ...prev,
+        bugLevel100FinaleSeenAtIso: realToday,
+      };
+      try {
+        window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(updated));
+      } catch {
+        // Ignorar límites de almacenamiento
+      }
+      return updated;
     });
   }, []);
 
@@ -726,6 +750,51 @@ export default function App() {
   const [isDocumentVisible, setIsDocumentVisible] = useState<boolean>(() =>
     typeof document === 'undefined' ? true : document.visibilityState !== 'hidden'
   );
+
+  // --- 4C. Escena final de Nivel 100: después de todos los logros/banners, fuerza Perfil y hace zoom a Bug ---
+  useEffect(() => {
+    if (!appState.hasSelectedInitialLanguage) return;
+    if (appState.bugLevel100FinaleSeenAtIso) return;
+    if (isLevel100FinaleOpen) return;
+    if (currentLevel < MAX_LEVEL && peakLevel < MAX_LEVEL) return;
+    if (
+      isTutorialOpen ||
+      isPermissionsModalOpen ||
+      isAlarmRinging ||
+      !isDocumentVisible ||
+      isPocketModeActive ||
+      trophyQueue.length > 0 ||
+      bugMilestoneQueue.length > 0
+    ) {
+      return;
+    }
+
+    // Esperar 1.15s para garantizar que cualquier logro de Nivel 100 recién evaluado haya entrado y terminado
+    const timerId = window.setTimeout(() => {
+      setIsSessionViewOpen(false);
+      setActiveTab(AppTab.PROFILE);
+      setBugMarquee(null);
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+      setIsLevel100FinaleOpen(true);
+    }, 1150);
+
+    return () => window.clearTimeout(timerId);
+  }, [
+    appState.hasSelectedInitialLanguage,
+    appState.bugLevel100FinaleSeenAtIso,
+    isLevel100FinaleOpen,
+    currentLevel,
+    peakLevel,
+    isTutorialOpen,
+    isPermissionsModalOpen,
+    isAlarmRinging,
+    isDocumentVisible,
+    isPocketModeActive,
+    trophyQueue.length,
+    bugMilestoneQueue.length,
+  ]);
 
   useEffect(() => {
     registerSW({ immediate: true });
@@ -2615,7 +2684,8 @@ export default function App() {
         {/* Carrusel luminoso de metro de Bug (sin bocadillos; solo se activa en eventos específicos y si no está silenciado) */}
         {(bugMarquee?.isSecret || (showBug && !appState.muteBugText)) &&
           bugMarquee &&
-          !isTutorialOpen && (
+          !isTutorialOpen &&
+          !isLevel100FinaleOpen && (
             <BugSubwayMarquee
               message={bugMarquee.text}
               messageId={bugMarquee.id}
@@ -2799,6 +2869,9 @@ export default function App() {
               motionStepsEnabled={Boolean(appState.motionStepsEnabled)}
               onChangeMotionSteps={handleChangeMotionSteps}
               onTriggerSecretBugMessage={handleTriggerSecretBugMessage}
+              isLevel100FinaleActive={isLevel100FinaleOpen}
+              onCompleteLevel100Finale={handleCompleteLevel100Finale}
+              onPocketModeChange={setIsPocketModeActive}
             />
           )}
 

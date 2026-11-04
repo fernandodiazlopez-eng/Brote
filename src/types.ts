@@ -169,6 +169,7 @@ export interface AppPersistentState {
   bugDisableSuperSaiyan?: boolean; // permite activar/desactivar la transformación Super Saiyajin tras alcanzar Nivel 90
   bugSecretCrownUnlockedAtIso?: string; // Secreto 1: 6+ rebotes en un mismo lanzamiento de Bug
   bugSecretScouterUnlockedAtIso?: string; // Secreto 2: 7 toques seguidos a Bug en Personalizar Bug (o 77 reps)
+  bugLevel100FinaleSeenAtIso?: string; // Escena final única al alcanzar el Nivel 100
   bugUnlockedHats?: BugWearableHatId[]; // gorros desbloqueados permanentemente
   bugSelectedHat?: BugHatId; // gorro equipado por Bug (Nivel 25+)
   bugHatColors?: Partial<Record<BugWearableHatId, RgbColor>>; // color RGB por cada gorro

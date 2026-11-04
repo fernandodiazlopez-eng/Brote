@@ -35,7 +35,11 @@ import {
 } from '../utils/calendarDates';
 import { getHexRelativeLuminance } from '../utils/localStorageState';
 import { DailyStepsDial } from './DailyStepsDial';
-import { BugGlobalMood } from './BugCompanion';
+import {
+  BugGlobalMood,
+  BugLevel100FinaleDialogue,
+  useBugLevel100FinaleSequence,
+} from './BugCompanion';
 import { MuscleRecoveryMap } from './MuscleRecoveryMap';
 import { PointsSystemInfoModal, ProfileSettingsModal } from './ProfileModals';
 
@@ -114,6 +118,9 @@ interface ProfileViewProps {
   motionStepsEnabled?: boolean;
   onChangeMotionSteps?: (enabled: boolean) => void;
   onTriggerSecretBugMessage?: () => void;
+  isLevel100FinaleActive?: boolean;
+  onCompleteLevel100Finale?: () => void;
+  onPocketModeChange?: (open: boolean) => void;
 }
 
 interface RoutineTransferDragState {
@@ -204,8 +211,15 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
   motionStepsEnabled = false,
   onChangeMotionSteps,
   onTriggerSecretBugMessage,
+  isLevel100FinaleActive = false,
+  onCompleteLevel100Finale,
+  onPocketModeChange,
 }) => {
   const { language, locale, t, formatCategory } = useI18n();
+  const { phase: finalePhase, dialogueText: finaleDialogueText } = useBugLevel100FinaleSequence(
+    isLevel100FinaleActive,
+    onCompleteLevel100Finale
+  );
   const formatKmValue = (km: number) => {
     const rounded = String(Math.round(km * 100) / 100);
     return language === 'es' ? rounded.replace('.', ',') : rounded;
@@ -236,6 +250,14 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
   const [selectedCompletedLogId, setSelectedCompletedLogId] = useState<string | null>(null);
   const infoSecretCycleCountRef = useRef<number>(0);
   const infoOpenedCleanlyRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    if (!isLevel100FinaleActive) return;
+    setIsPointsInfoOpen(false);
+    setIsSettingsOpen(false);
+    setIsScheduleModalOpen(false);
+    setSelectedCompletedLogId(null);
+  }, [isLevel100FinaleActive]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -557,8 +579,21 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
     }
   };
 
+  const isZoomedOnBug =
+    Boolean(finalePhase) && finalePhase !== 'framing' && finalePhase !== 'zoom-out';
+
   return (
     <div className={`space-y-5 ${isDraggingPointer ? 'select-none touch-none' : ''}`}>
+      {/* Viñeta oscura durante la escena especial de Nivel 100 para centrar toda la atención en Bug */}
+      {finalePhase && (
+        <div
+          aria-hidden="true"
+          className={`fixed inset-0 z-[55] bg-black/78 backdrop-blur-[1.5px] transition-opacity duration-700 ${
+            isZoomedOnBug ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+          }`}
+        />
+      )}
+
       {/* 1. ACCESOS RÁPIDOS SUPERIORES SIN RECUADRO (INFO IZQUIERDA · AJUSTES DERECHA) */}
       <header className="flex items-center justify-between -mb-2">
         <button
@@ -587,7 +622,9 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
       {/* 2. MÓDULO DE NIVEL + ESQUEMA + BARRA DE NIVELES + XP CENTRADO */}
       <section
         data-tutorial="profile-level"
-        className="sheet-panel ndot-surface px-4 py-3.5 sm:px-5 sm:py-4 flex flex-col gap-2.5"
+        className={`sheet-panel ndot-surface px-4 py-3.5 sm:px-5 sm:py-4 flex flex-col gap-2.5 profile-finale-zoom-card ${
+          finalePhase ? 'relative z-[60] pointer-events-none select-none' : ''
+        } ${isZoomedOnBug ? 'profile-finale-zoom-card-active' : ''}`}
       >
         <h1 className="font-display text-xl sm:text-2xl font-bold leading-none tracking-wide text-fg text-center tabular-nums">
           {t.profile_level_prefix} {level}
@@ -603,6 +640,7 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
           bugMood={bugMood}
           canPetBug={canPetBug}
           canLaunchBugHockey={canLaunchBugHockey}
+          finalePhase={finalePhase}
         />
 
         <div className="space-y-1.5">
@@ -1218,8 +1256,12 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
           onUpdateStepGoal={onUpdateStepGoal}
           isMotionSensorReceiving={isMotionSensorReceiving}
           motionStepsEnabled={motionStepsEnabled}
+          onPocketModeChange={onPocketModeChange}
         />
       </div>
+
+      {/* Cuadro LED nítido de diálogos durante la escena de Nivel 100 */}
+      <BugLevel100FinaleDialogue dialogueText={finaleDialogueText} phase={finalePhase} />
 
       {/* Modales de Información y Ajustes */}
       <PointsSystemInfoModal

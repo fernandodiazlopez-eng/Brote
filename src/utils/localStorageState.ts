@@ -811,6 +811,9 @@ export function hydrateSanitizedAppState(
   )
     ? parsed.bugSecretScouterUnlockedAtIso
     : undefined;
+  const resolvedBugLevel100FinaleSeenAtIso = isIsoDateString(parsed.bugLevel100FinaleSeenAtIso)
+    ? parsed.bugLevel100FinaleSeenAtIso
+    : undefined;
 
   const explicitUnlockedHats = sanitizeBugUnlockedHats(parsed.bugUnlockedHats);
   const migratedLevelHats: BugWearableHatId[] = resolvedBugUnlockedAtIso
@@ -914,6 +917,9 @@ export function hydrateSanitizedAppState(
       : {}),
     ...(resolvedBugSecretScouterUnlockedAtIso
       ? { bugSecretScouterUnlockedAtIso: resolvedBugSecretScouterUnlockedAtIso }
+      : {}),
+    ...(resolvedBugLevel100FinaleSeenAtIso
+      ? { bugLevel100FinaleSeenAtIso: resolvedBugLevel100FinaleSeenAtIso }
       : {}),
     ...(resolvedUnlockedHats ? { bugUnlockedHats: resolvedUnlockedHats } : {}),
     ...(sanitizedSelectedHat ? { bugSelectedHat: sanitizedSelectedHat } : {}),

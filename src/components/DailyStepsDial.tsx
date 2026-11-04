@@ -22,6 +22,7 @@ interface DailyStepsDialProps {
   onUpdateStepGoal: (newGoal: number) => void;
   isMotionSensorReceiving?: boolean;
   motionStepsEnabled?: boolean;
+  onPocketModeChange?: (open: boolean) => void;
 }
 
 const DIAL_SIZE = 224;
@@ -84,6 +85,7 @@ export const DailyStepsDial: React.FC<DailyStepsDialProps> = React.memo(({
   onUpdateStepGoal,
   isMotionSensorReceiving = false,
   motionStepsEnabled = false,
+  onPocketModeChange,
 }) => {
   const { locale, t } = useI18n();
   const safeGoal = Math.max(500, stepGoal);
@@ -104,6 +106,13 @@ export const DailyStepsDial: React.FC<DailyStepsDialProps> = React.memo(({
 
   const [isPocketModeOpen, setIsPocketModeOpen] = useState(false);
   const lastUnlockTapRef = useRef<number>(0);
+
+  useEffect(() => {
+    onPocketModeChange?.(isPocketModeOpen);
+    return () => {
+      onPocketModeChange?.(false);
+    };
+  }, [isPocketModeOpen, onPocketModeChange]);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
   const cachedCenterRef = useRef<{ cx: number; cy: number } | null>(null);

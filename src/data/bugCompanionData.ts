@@ -706,3 +706,29 @@ export function getBugMilestoneCopy(
       'Mantén pulsado a Bug para cogerlo y lanzarlo rebotando por las paredes de la pantalla.',
   };
 }
+
+export interface BugLevel100FinaleCopy {
+  unwell: string;
+  dying: string;
+  jokeReveal: string;
+  proud: string;
+}
+
+export function getBugLevel100FinaleCopy(language: AppLanguage): BugLevel100FinaleCopy {
+  if (language === 'en') {
+    return {
+      unwell: "I don't feel so good...",
+      dying: "I think I'm dying...",
+      jokeReveal: "I'm dying to see how you keep progressing!",
+      proud: "I'm so proud of you.",
+    };
+  }
+
+  return {
+    unwell: 'No me encuentro muy bien...',
+    dying: 'Creo que me muero...',
+    jokeReveal: '¡Muero de ganas de ver cómo sigues progresando!',
+    proud: 'Estoy muy orgulloso de ti.',
+  };
+}
+
