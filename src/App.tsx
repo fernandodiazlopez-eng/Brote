@@ -166,7 +166,11 @@ export default function App() {
 
   // Estado reactivo de Bug (mascota 8-bits) y su carrusel luminoso de metro
   const [bugMood, setBugMood] = useState<BugGlobalMood>('none');
-  const [bugMarquee, setBugMarquee] = useState<{ id: number; text: string } | null>(null);
+  const [bugMarquee, setBugMarquee] = useState<{
+    id: number;
+    text: string;
+    isSecret?: boolean;
+  } | null>(null);
   const [trophyCelebrateToken, setTrophyCelebrateToken] = useState<number>(0);
   const [scrollTopHopToken, setScrollTopHopToken] = useState<number>(0);
   const [fastScrollUpToken, setFastScrollUpToken] = useState<number>(0);
@@ -176,6 +180,7 @@ export default function App() {
   const lastBugPhraseRef = useRef<string | null>(null);
   const nextBugMsgIdRef = useRef<number>(0);
   const didTriggerOpenGreetingRef = useRef<boolean>(false);
+  const profileSecretTapCountRef = useRef<number>(0);
 
   // --- 1. Sincronización de fecha real al volver del segundo plano o pasar medianoche ---
   useEffect(() => {
@@ -370,6 +375,7 @@ export default function App() {
 
   const handleSelectTab = useCallback((nextTab: AppTab) => {
     if (nextTab !== AppTab.PROFILE) {
+      profileSecretTapCountRef.current = 0;
       setXpPulseToken(0);
     }
     setActiveTab((prevTab) => {
@@ -379,6 +385,58 @@ export default function App() {
       return nextTab;
     });
   }, []);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const resetIfNotProfileNav = (e: Event) => {
+      const target = e.target;
+      if (!(target instanceof Element) || !target.closest('[data-nav-tab="PROFILE"]')) {
+        profileSecretTapCountRef.current = 0;
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target;
+      const isProfileNavKey =
+        (e.key === 'Enter' || e.key === ' ') &&
+        target instanceof Element &&
+        Boolean(target.closest('[data-nav-tab="PROFILE"]'));
+      if (!isProfileNavKey) {
+        profileSecretTapCountRef.current = 0;
+      }
+    };
+    document.addEventListener('pointerdown', resetIfNotProfileNav, true);
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', resetIfNotProfileNav, true);
+      document.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, []);
+
+  const handleBottomNavTabClick = useCallback(
+    (tabId: AppTab) => {
+      handleSelectTab(tabId);
+      if (tabId !== AppTab.PROFILE) {
+        profileSecretTapCountRef.current = 0;
+        return;
+      }
+      profileSecretTapCountRef.current += 1;
+      if (profileSecretTapCountRef.current >= 14) {
+        profileSecretTapCountRef.current = 0;
+        nextBugMsgIdRef.current += 1;
+        setBugMarquee({ id: nextBugMsgIdRef.current, text: 'FD 26', isSecret: true });
+        setScrollTopHopToken((n) => n + 1);
+        if (!checkIsBugSleepHours()) {
+          clearBugMoodTimers();
+          setBugMood('happy');
+          const calmId = window.setTimeout(() => {
+            setBugMood('none');
+          }, 2400);
+          bugMoodTimersRef.current.push(calmId);
+        }
+      }
+    },
+    [handleSelectTab, clearBugMoodTimers]
+  );
 
   useEffect(() => {
     if (totalXp < lastDisplayedXpRef.current) {
@@ -2599,14 +2657,16 @@ export default function App() {
         )}
 
         {/* Carrusel luminoso de metro de Bug (sin bocadillos; solo se activa en eventos específicos y si no está silenciado) */}
-        {showBug && !appState.muteBugText && bugMarquee && !isTutorialOpen && (
-          <BugSubwayMarquee
-            message={bugMarquee.text}
-            messageId={bugMarquee.id}
-            shiftedDown={Boolean(currentTrophyBanner || currentBugBanner || isAlarmRinging)}
-            onComplete={handleCompleteBugMarquee}
-          />
-        )}
+        {(bugMarquee?.isSecret || (showBug && !appState.muteBugText)) &&
+          bugMarquee &&
+          !isTutorialOpen && (
+            <BugSubwayMarquee
+              message={bugMarquee.text}
+              messageId={bugMarquee.id}
+              shiftedDown={Boolean(currentTrophyBanner || currentBugBanner || isAlarmRinging)}
+              onComplete={handleCompleteBugMarquee}
+            />
+          )}
 
         {/* Alerta superior de Temporizador Finalizado */}
         {isAlarmRinging && (
@@ -2849,9 +2909,10 @@ export default function App() {
                 <button
                   key={tab.id}
                   type="button"
-                  onClick={() => handleSelectTab(tab.id)}
+                  data-nav-tab={tab.id}
+                  onClick={() => handleBottomNavTabClick(tab.id)}
                   aria-current={isActive ? 'page' : undefined}
-                  className={`relative min-h-[48px] flex flex-col items-center justify-center transition-colors cursor-pointer ${
+                  className={`relative min-h-[48px] flex flex-col items-center justify-center transition-colors cursor-pointer touch-manipulation ${
                     isActive ? 'text-fg' : 'text-fg-muted hover:text-fg-secondary'
                   }`}
                 >
