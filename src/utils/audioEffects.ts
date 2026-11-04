@@ -770,6 +770,74 @@ export function playBugUnlockSound(isPlayUnlock = false): void {
   }
 }
 
+/** Ráfaga de ki retro 8-bits al acariciar a Bug en modo Super Saiyajin (Nivel 90+). */
+export function playBugSuperSaiyanSound(): void {
+  try {
+    const ctx = getOrCreateAudioContext();
+    if (!ctx) return;
+
+    cancelScheduledSuspend();
+    activeSoundEffectsCount += 1;
+
+    if (ctx.state === 'suspended') {
+      void ctx.resume().catch(() => {});
+    }
+
+    const now = ctx.currentTime;
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0.55, now);
+    master.connect(ctx.destination);
+
+    // Barrido ascendente de energía dorada + pulsos eléctricos 8-bits
+    const sweepOsc = ctx.createOscillator();
+    const sweepGain = ctx.createGain();
+    sweepOsc.type = 'sawtooth';
+    sweepOsc.frequency.setValueAtTime(165, now);
+    sweepOsc.frequency.exponentialRampToValueAtTime(660, now + 0.32);
+    sweepOsc.frequency.exponentialRampToValueAtTime(880, now + 0.65);
+    sweepGain.gain.setValueAtTime(0.0001, now);
+    sweepGain.gain.linearRampToValueAtTime(0.09, now + 0.04);
+    sweepGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.72);
+    sweepOsc.connect(sweepGain);
+    sweepGain.connect(master);
+    sweepOsc.start(now);
+    sweepOsc.stop(now + 0.75);
+
+    const sparkNotes = [587.33, 880, 1174.66, 1318.5, 1760];
+    sparkNotes.forEach((freq, idx) => {
+      const t0 = now + 0.08 + idx * 0.095;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(freq, t0);
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.linearRampToValueAtTime(0.065, t0 + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.08);
+      osc.connect(gain);
+      gain.connect(master);
+      osc.start(t0);
+      osc.stop(t0 + 0.09);
+    });
+
+    if (typeof window !== 'undefined') {
+      window.setTimeout(() => {
+        activeSoundEffectsCount = Math.max(0, activeSoundEffectsCount - 1);
+        try {
+          master.disconnect();
+        } catch {
+          // Ignorar errores de desconexión
+        }
+        scheduleAudioSuspendWhenIdle(120);
+      }, 860);
+    } else {
+      activeSoundEffectsCount = Math.max(0, activeSoundEffectsCount - 1);
+    }
+  } catch {
+    activeSoundEffectsCount = Math.max(0, activeSoundEffectsCount - 1);
+    scheduleAudioSuspendWhenIdle(120);
+  }
+}
+
 function playAlarmChimeWebAudioOnce(playSound = true): void {
   try {
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {

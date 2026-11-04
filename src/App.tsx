@@ -36,8 +36,10 @@ import { StatsView } from './components/StatsView';
 import { TrainingView } from './components/TrainingView';
 import { TrophyUnlockBanner } from './components/TrophyUnlockBanner';
 import {
+  BUG_HATS_CATALOG,
   BugDialogueCategory,
   DEFAULT_BUG_HAT_COLORS,
+  getResolvedBugHatColor,
   pickBugPhrase,
   sanitizeRgbColor,
 } from './data/bugCompanionData';
@@ -60,6 +62,7 @@ import {
   BugHatId,
   BugMusicMode,
   BugUnlockMilestone,
+  BugWearableHatId,
   CompletedWorkout,
   CustomBugPhrase,
   DailyActivityRecord,
@@ -240,25 +243,65 @@ export default function App() {
   const isBugHockeyUnlocked =
     Boolean(appState.bugHockeyUnlockedAtIso) || currentLevel >= 5 || peakLevel >= 5;
   const isBugCustomizationUnlocked =
-    Boolean(appState.bugCustomizationUnlockedAtIso) || currentLevel >= 25 || peakLevel >= 25;
+    Boolean(appState.bugCustomizationUnlockedAtIso) ||
+    currentLevel >= 25 ||
+    peakLevel >= 25 ||
+    Boolean(appState.bugSecretCrownUnlockedAtIso) ||
+    Boolean(appState.bugSecretScouterUnlockedAtIso);
+  const isBugGrown =
+    Boolean(appState.bugGrownUnlockedAtIso) || currentLevel >= 50 || peakLevel >= 50;
+  const isBugSuperSaiyanUnlocked =
+    Boolean(appState.bugSuperSaiyanUnlockedAtIso) || currentLevel >= 90 || peakLevel >= 90;
   const hideBug = Boolean(appState.hideBug);
   const showBug = isBugUnlocked && !hideBug;
 
   const bugMusicMode: BugMusicMode = appState.bugMusicMode ?? 'auto';
   const isMusicPlaying = useMediaPlaybackDetection(bugMusicMode);
 
-  const equippedHat: BugHatId = isBugCustomizationUnlocked
-    ? appState.bugSelectedHat ?? 'none'
-    : 'none';
-  const equippedHatColor = useMemo<RgbColor>(() => {
-    if (equippedHat === 'bow') {
-      return sanitizeRgbColor(appState.bugHatColors?.bow, DEFAULT_BUG_HAT_COLORS.bow);
+  const bugUnlockedHats = useMemo<BugWearableHatId[]>(() => {
+    const unlocked = new Set<BugWearableHatId>(appState.bugUnlockedHats ?? []);
+    const hasLvl25Hats =
+      Boolean(appState.bugCustomizationUnlockedAtIso) || currentLevel >= 25 || peakLevel >= 25;
+    for (const hatMeta of BUG_HATS_CATALOG) {
+      if (hatMeta.isSecret) continue;
+      if (hatMeta.unlockLevel === 25 && hasLvl25Hats) {
+        unlocked.add(hatMeta.id);
+      } else if (
+        hatMeta.unlockLevel !== undefined &&
+        (currentLevel >= hatMeta.unlockLevel || peakLevel >= hatMeta.unlockLevel)
+      ) {
+        unlocked.add(hatMeta.id);
+      }
     }
-    return sanitizeRgbColor(
-      appState.bugHatColors?.headphones,
-      DEFAULT_BUG_HAT_COLORS.headphones
-    );
-  }, [equippedHat, appState.bugHatColors?.bow, appState.bugHatColors?.headphones]);
+    if (appState.bugSecretCrownUnlockedAtIso) {
+      unlocked.add('crown');
+    }
+    if (appState.bugSecretScouterUnlockedAtIso) {
+      unlocked.add('scouter');
+    }
+    return Array.from(unlocked);
+  }, [
+    appState.bugUnlockedHats,
+    appState.bugCustomizationUnlockedAtIso,
+    appState.bugSecretCrownUnlockedAtIso,
+    appState.bugSecretScouterUnlockedAtIso,
+    currentLevel,
+    peakLevel,
+  ]);
+
+  const equippedHat: BugHatId = useMemo(() => {
+    if (!isBugCustomizationUnlocked) return 'none';
+    const selected = appState.bugSelectedHat ?? 'none';
+    if (selected === 'none') return 'none';
+    return bugUnlockedHats.includes(selected) ? selected : 'none';
+  }, [isBugCustomizationUnlocked, appState.bugSelectedHat, bugUnlockedHats]);
+
+  const equippedHatColor = useMemo<RgbColor>(() => {
+    if (equippedHat === 'none') {
+      return DEFAULT_BUG_HAT_COLORS.headphones;
+    }
+    return getResolvedBugHatColor(equippedHat, appState.bugHatColors);
+  }, [equippedHat, appState.bugHatColors]);
 
   const wasBugUnlockedOnMountRef = useRef<boolean | null>(null);
   if (wasBugUnlockedOnMountRef.current === null) {
@@ -424,39 +467,101 @@ export default function App() {
     setTrophyQueue((prev) => prev.slice(1));
   }, []);
 
-  // --- 4B. Desbloqueos de Bug (Nivel 3: Mascota · Nivel 4: Acariciar · Nivel 5: Jugar · Nivel 25: Personalización) y saludo al abrir ---
+  // --- 4B. Desbloqueos progresivos de Bug (Niveles 3..90, gorros repartidos y secretos) ---
   useEffect(() => {
     if (!appState.hasSelectedInitialLanguage) return;
 
-    const reachedLvl3 = currentLevel >= 3 || peakLevel >= 3;
-    const reachedLvl4 = currentLevel >= 4 || peakLevel >= 4;
-    const reachedLvl5 = currentLevel >= 5 || peakLevel >= 5;
-    const reachedLvl25 = currentLevel >= 25 || peakLevel >= 25;
-    const needLvl3 = reachedLvl3 && !appState.bugUnlockedAtIso;
-    const needLvl4 = reachedLvl4 && !appState.bugPetUnlockedAtIso;
-    const needLvl5 = reachedLvl5 && !appState.bugHockeyUnlockedAtIso;
-    const needLvl25 = reachedLvl25 && !appState.bugCustomizationUnlockedAtIso;
+    const reachedLvl = (lvl: number) => currentLevel >= lvl || peakLevel >= lvl;
+    const savedHats = new Set<BugWearableHatId>(appState.bugUnlockedHats ?? []);
 
-    if (!needLvl3 && !needLvl4 && !needLvl5 && !needLvl25) return;
+    const needLvl3 = reachedLvl(3) && !appState.bugUnlockedAtIso;
+    const needLvl4 = reachedLvl(4) && !appState.bugPetUnlockedAtIso;
+    const needLvl5 = reachedLvl(5) && !appState.bugHockeyUnlockedAtIso;
+    const needLvl25 = reachedLvl(25) && !appState.bugCustomizationUnlockedAtIso;
+    const needLvl32 = reachedLvl(32) && !savedHats.has('plunger');
+    const needLvl40 = reachedLvl(40) && !savedHats.has('robot_antenna');
+    const needLvl46 = reachedLvl(46) && !savedHats.has('cowboy');
+    const needLvl50 = reachedLvl(50) && !appState.bugGrownUnlockedAtIso;
+    const needLvl56 = reachedLvl(56) && !savedHats.has('pirate');
+    const needLvl65 = reachedLvl(65) && !savedHats.has('horns');
+    const needLvl74 = reachedLvl(74) && !savedHats.has('halo');
+    const needLvl82 = reachedLvl(82) && !savedHats.has('wizard');
+    const needLvl90 = reachedLvl(90) && !appState.bugSuperSaiyanUnlockedAtIso;
 
-    setAppState((prev) => ({
-      ...prev,
-      ...(needLvl3 && !prev.bugUnlockedAtIso ? { bugUnlockedAtIso: todayIso } : {}),
-      ...(needLvl4 && !prev.bugPetUnlockedAtIso ? { bugPetUnlockedAtIso: todayIso } : {}),
-      ...(needLvl5 && !prev.bugHockeyUnlockedAtIso
-        ? { bugHockeyUnlockedAtIso: todayIso }
-        : {}),
-      ...(needLvl25 && !prev.bugCustomizationUnlockedAtIso
-        ? { bugCustomizationUnlockedAtIso: todayIso }
-        : {}),
-    }));
+    const needBase25Hats =
+      reachedLvl(25) && (!savedHats.has('headphones') || !savedHats.has('bow'));
+
+    if (
+      !needLvl3 &&
+      !needLvl4 &&
+      !needLvl5 &&
+      !needLvl25 &&
+      !needBase25Hats &&
+      !needLvl32 &&
+      !needLvl40 &&
+      !needLvl46 &&
+      !needLvl50 &&
+      !needLvl56 &&
+      !needLvl65 &&
+      !needLvl74 &&
+      !needLvl82 &&
+      !needLvl90
+    ) {
+      return;
+    }
+
+    setAppState((prev) => {
+      const nextHatsSet = new Set<BugWearableHatId>(prev.bugUnlockedHats ?? []);
+      if (reachedLvl(25)) {
+        nextHatsSet.add('headphones');
+        nextHatsSet.add('bow');
+      }
+      if (reachedLvl(32)) nextHatsSet.add('plunger');
+      if (reachedLvl(40)) nextHatsSet.add('robot_antenna');
+      if (reachedLvl(46)) nextHatsSet.add('cowboy');
+      if (reachedLvl(56)) nextHatsSet.add('pirate');
+      if (reachedLvl(65)) nextHatsSet.add('horns');
+      if (reachedLvl(74)) nextHatsSet.add('halo');
+      if (reachedLvl(82)) nextHatsSet.add('wizard');
+
+      return {
+        ...prev,
+        ...(needLvl3 && !prev.bugUnlockedAtIso ? { bugUnlockedAtIso: todayIso } : {}),
+        ...(needLvl4 && !prev.bugPetUnlockedAtIso ? { bugPetUnlockedAtIso: todayIso } : {}),
+        ...(needLvl5 && !prev.bugHockeyUnlockedAtIso
+          ? { bugHockeyUnlockedAtIso: todayIso }
+          : {}),
+        ...(needLvl25 && !prev.bugCustomizationUnlockedAtIso
+          ? { bugCustomizationUnlockedAtIso: todayIso }
+          : {}),
+        ...(needLvl50 && !prev.bugGrownUnlockedAtIso
+          ? { bugGrownUnlockedAtIso: todayIso }
+          : {}),
+        ...(needLvl90 && !prev.bugSuperSaiyanUnlockedAtIso
+          ? { bugSuperSaiyanUnlockedAtIso: todayIso }
+          : {}),
+        ...(nextHatsSet.size > 0 ? { bugUnlockedHats: Array.from(nextHatsSet) } : {}),
+      };
+    });
 
     setBugMilestoneQueue((prev) => {
       const next = [...prev];
-      if (needLvl3 && !next.includes('level3')) next.push('level3');
-      if (needLvl4 && !next.includes('level4')) next.push('level4');
-      if (needLvl5 && !next.includes('level5')) next.push('level5');
-      if (needLvl25 && !next.includes('level25')) next.push('level25');
+      const pushUnique = (m: BugUnlockMilestone) => {
+        if (!next.includes(m)) next.push(m);
+      };
+      if (needLvl3) pushUnique('level3');
+      if (needLvl4) pushUnique('level4');
+      if (needLvl5) pushUnique('level5');
+      if (needLvl25) pushUnique('level25');
+      if (needLvl32) pushUnique('level32');
+      if (needLvl40) pushUnique('level40');
+      if (needLvl46) pushUnique('level46');
+      if (needLvl50) pushUnique('level50');
+      if (needLvl56) pushUnique('level56');
+      if (needLvl65) pushUnique('level65');
+      if (needLvl74) pushUnique('level74');
+      if (needLvl82) pushUnique('level82');
+      if (needLvl90) pushUnique('level90');
       return next;
     });
   }, [
@@ -465,6 +570,9 @@ export default function App() {
     appState.bugPetUnlockedAtIso,
     appState.bugHockeyUnlockedAtIso,
     appState.bugCustomizationUnlockedAtIso,
+    appState.bugGrownUnlockedAtIso,
+    appState.bugSuperSaiyanUnlockedAtIso,
+    appState.bugUnlockedHats,
     currentLevel,
     peakLevel,
     todayIso,
@@ -472,7 +580,8 @@ export default function App() {
 
   useEffect(() => {
     if (!currentBugBanner) return;
-    playBugUnlockSound(currentBugBanner === 'level5' || currentBugBanner === 'level25');
+    playBugUnlockSound(currentBugBanner !== 'level3' && currentBugBanner !== 'level4');
+    setTrophyCelebrateToken((n) => n + 1);
 
     const timerId = window.setTimeout(() => {
       setBugMilestoneQueue((prev) => prev.slice(1));
@@ -482,6 +591,42 @@ export default function App() {
 
   const handleDismissBugBanner = useCallback(() => {
     setBugMilestoneQueue((prev) => prev.slice(1));
+  }, []);
+
+  const handleUnlockSecretCrown = useCallback(() => {
+    const snap = latestAppStateRef.current;
+    if (snap.bugSecretCrownUnlockedAtIso) return;
+    const realToday = getTodayDateIso();
+    setAppState((prev) => {
+      if (prev.bugSecretCrownUnlockedAtIso) return prev;
+      const nextHats = new Set<BugWearableHatId>(prev.bugUnlockedHats ?? []);
+      nextHats.add('crown');
+      return {
+        ...prev,
+        bugSecretCrownUnlockedAtIso: realToday,
+        bugUnlockedHats: Array.from(nextHats),
+      };
+    });
+    setBugMilestoneQueue((prev) => (prev.includes('secret_crown') ? prev : [...prev, 'secret_crown']));
+  }, []);
+
+  const handleUnlockSecretScouter = useCallback(() => {
+    const snap = latestAppStateRef.current;
+    if (snap.bugSecretScouterUnlockedAtIso) return;
+    const realToday = getTodayDateIso();
+    setAppState((prev) => {
+      if (prev.bugSecretScouterUnlockedAtIso) return prev;
+      const nextHats = new Set<BugWearableHatId>(prev.bugUnlockedHats ?? []);
+      nextHats.add('scouter');
+      return {
+        ...prev,
+        bugSecretScouterUnlockedAtIso: realToday,
+        bugUnlockedHats: Array.from(nextHats),
+      };
+    });
+    setBugMilestoneQueue((prev) =>
+      prev.includes('secret_scouter') ? prev : [...prev, 'secret_scouter']
+    );
   }, []);
 
   useEffect(() => {
@@ -1290,17 +1435,29 @@ export default function App() {
   );
 
   const handleIncrementRepCounter = useCallback(() => {
-    setRepCounter((prev) => (prev >= 99 ? 0 : prev + 1));
-  }, []);
+    setRepCounter((prev) => {
+      const next = prev >= 99 ? 0 : prev + 1;
+      if (next === 77 && isBugUnlocked) {
+        handleUnlockSecretScouter();
+      }
+      return next;
+    });
+  }, [isBugUnlocked, handleUnlockSecretScouter]);
 
   const handleResetRepCounter = useCallback(() => {
     setRepCounter(0);
   }, []);
 
-  const handleChangeRepCounter = useCallback((nextValue: number) => {
-    const normalized = ((Math.round(nextValue) % 100) + 100) % 100;
-    setRepCounter(normalized);
-  }, []);
+  const handleChangeRepCounter = useCallback(
+    (nextValue: number) => {
+      const normalized = ((Math.round(nextValue) % 100) + 100) % 100;
+      if (normalized === 77 && isBugUnlocked) {
+        handleUnlockSecretScouter();
+      }
+      setRepCounter(normalized);
+    },
+    [isBugUnlocked, handleUnlockSecretScouter]
+  );
 
   const handleCompleteWorkout = useCallback(() => {
     if (!activeSessionRoutine) return;
@@ -2064,11 +2221,8 @@ export default function App() {
   }, []);
 
   const handleChangeBugHatColor = useCallback(
-    (hat: Exclude<BugHatId, 'none'>, color: RgbColor) => {
-      const sanitized = sanitizeRgbColor(
-        color,
-        hat === 'bow' ? DEFAULT_BUG_HAT_COLORS.bow : DEFAULT_BUG_HAT_COLORS.headphones
-      );
+    (hat: BugWearableHatId, color: RgbColor) => {
+      const sanitized = sanitizeRgbColor(color, DEFAULT_BUG_HAT_COLORS[hat]);
       setAppState((prev) => ({
         ...prev,
         bugHatColors: {
@@ -2079,6 +2233,13 @@ export default function App() {
     },
     []
   );
+
+  const handleChangeBugDisableSuperSaiyan = useCallback((nextDisable: boolean) => {
+    setAppState((prev) => ({
+      ...prev,
+      bugDisableSuperSaiyan: nextDisable,
+    }));
+  }, []);
 
   const handleAddCustomBugPhrase = useCallback(
     (category: BugDialogueCategory, rawText: string) => {
@@ -2256,6 +2417,8 @@ export default function App() {
     onSyncHardwareTotalSteps: handleSyncHardwareTotalSteps,
   });
 
+  const canBugSuperSaiyan = isBugSuperSaiyanUnlocked && !appState.bugDisableSuperSaiyan;
+
   const bugReactionContextValue = useMemo<BugReactionContextValue>(
     () => ({
       isAlarmRinging,
@@ -2269,6 +2432,9 @@ export default function App() {
       musicMode: bugMusicMode,
       equippedHat,
       equippedHatColor,
+      isGrown: isBugGrown,
+      canSuperSaiyan: canBugSuperSaiyan,
+      onUnlockSecretCrown: handleUnlockSecretCrown,
     }),
     [
       isAlarmRinging,
@@ -2282,6 +2448,9 @@ export default function App() {
       bugMusicMode,
       equippedHat,
       equippedHatColor,
+      isBugGrown,
+      canBugSuperSaiyan,
+      handleUnlockSecretCrown,
     ]
   );
 
@@ -2581,6 +2750,12 @@ export default function App() {
               onChangeBugSelectedHat={handleChangeBugSelectedHat}
               bugHatColors={appState.bugHatColors}
               onChangeBugHatColor={handleChangeBugHatColor}
+              bugUnlockedHats={bugUnlockedHats}
+              isBugGrown={isBugGrown}
+              isBugSuperSaiyanUnlocked={isBugSuperSaiyanUnlocked}
+              bugDisableSuperSaiyan={Boolean(appState.bugDisableSuperSaiyan)}
+              onChangeBugDisableSuperSaiyan={handleChangeBugDisableSuperSaiyan}
+              onUnlockSecretScouter={handleUnlockSecretScouter}
               deletedBugPhraseKeys={appState.deletedBugPhraseKeys?.[appState.language] || []}
               customBugPhrases={appState.customBugPhrases?.[appState.language] || []}
               onAddCustomBugPhrase={handleAddCustomBugPhrase}

@@ -15,6 +15,7 @@ import {
   BugDialogueCategory,
   BugHatId,
   BugMusicMode,
+  BugWearableHatId,
   CompletedWorkout,
   CustomBugPhrase,
   DailyActivityRecord,
@@ -87,8 +88,14 @@ interface ProfileViewProps {
   onChangeBugMusicMode?: (mode: BugMusicMode) => void;
   bugSelectedHat?: BugHatId;
   onChangeBugSelectedHat?: (hat: BugHatId) => void;
-  bugHatColors?: Partial<Record<Exclude<BugHatId, 'none'>, RgbColor>>;
-  onChangeBugHatColor?: (hat: Exclude<BugHatId, 'none'>, color: RgbColor) => void;
+  bugHatColors?: Partial<Record<BugWearableHatId, RgbColor>>;
+  onChangeBugHatColor?: (hat: BugWearableHatId, color: RgbColor) => void;
+  bugUnlockedHats?: BugWearableHatId[];
+  isBugGrown?: boolean;
+  isBugSuperSaiyanUnlocked?: boolean;
+  bugDisableSuperSaiyan?: boolean;
+  onChangeBugDisableSuperSaiyan?: (disable: boolean) => void;
+  onUnlockSecretScouter?: () => void;
   deletedBugPhraseKeys?: string[];
   customBugPhrases?: CustomBugPhrase[];
   onAddCustomBugPhrase?: (category: BugDialogueCategory, text: string) => void;
@@ -172,6 +179,12 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
   onChangeBugSelectedHat,
   bugHatColors,
   onChangeBugHatColor,
+  bugUnlockedHats,
+  isBugGrown = false,
+  isBugSuperSaiyanUnlocked = false,
+  bugDisableSuperSaiyan = false,
+  onChangeBugDisableSuperSaiyan,
+  onUnlockSecretScouter,
   deletedBugPhraseKeys,
   customBugPhrases,
   onAddCustomBugPhrase,
@@ -1205,6 +1218,12 @@ export const ProfileView: React.FC<ProfileViewProps> = React.memo(({
         onChangeBugSelectedHat={onChangeBugSelectedHat}
         bugHatColors={bugHatColors}
         onChangeBugHatColor={onChangeBugHatColor}
+        bugUnlockedHats={bugUnlockedHats}
+        isBugGrown={isBugGrown}
+        isBugSuperSaiyanUnlocked={isBugSuperSaiyanUnlocked}
+        bugDisableSuperSaiyan={bugDisableSuperSaiyan}
+        onChangeBugDisableSuperSaiyan={onChangeBugDisableSuperSaiyan}
+        onUnlockSecretScouter={onUnlockSecretScouter}
         deletedBugPhraseKeys={deletedBugPhraseKeys}
         customBugPhrases={customBugPhrases}
         onAddCustomBugPhrase={onAddCustomBugPhrase}

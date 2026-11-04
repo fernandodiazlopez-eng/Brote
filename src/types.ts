@@ -115,7 +115,21 @@ export interface WeekDayInfo {
   monthShort: string;
 }
 
-export type BugHatId = 'none' | 'headphones' | 'bow';
+export type BugHatId =
+  | 'none'
+  | 'headphones'
+  | 'bow'
+  | 'plunger'
+  | 'robot_antenna'
+  | 'cowboy'
+  | 'pirate'
+  | 'horns'
+  | 'halo'
+  | 'wizard'
+  | 'crown'
+  | 'scouter';
+
+export type BugWearableHatId = Exclude<BugHatId, 'none'>;
 
 export interface RgbColor {
   r: number;
@@ -150,8 +164,14 @@ export interface AppPersistentState {
   bugPetUnlockedAtIso?: string; // fecha ISO al alcanzar Nivel 4 y desbloquear acariciar a Bug
   bugHockeyUnlockedAtIso?: string; // fecha ISO al alcanzar Nivel 5 y desbloquear jugar / lanzar a Bug
   bugCustomizationUnlockedAtIso?: string; // fecha ISO al alcanzar Nivel 25 y desbloquear gorros y personalización
+  bugGrownUnlockedAtIso?: string; // fecha ISO al alcanzar Nivel 50 y crecer un poquito
+  bugSuperSaiyanUnlockedAtIso?: string; // fecha ISO al alcanzar Nivel 90 y desbloquear animación Super Saiyajin al acariciar
+  bugDisableSuperSaiyan?: boolean; // permite activar/desactivar la transformación Super Saiyajin tras alcanzar Nivel 90
+  bugSecretCrownUnlockedAtIso?: string; // Secreto 1: 6+ rebotes en un mismo lanzamiento de Bug
+  bugSecretScouterUnlockedAtIso?: string; // Secreto 2: 7 toques seguidos a Bug en Personalizar Bug (o 77 reps)
+  bugUnlockedHats?: BugWearableHatId[]; // gorros desbloqueados permanentemente
   bugSelectedHat?: BugHatId; // gorro equipado por Bug (Nivel 25+)
-  bugHatColors?: Partial<Record<Exclude<BugHatId, 'none'>, RgbColor>>; // color RGB por cada gorro
+  bugHatColors?: Partial<Record<BugWearableHatId, RgbColor>>; // color RGB por cada gorro
   bugMusicMode?: BugMusicMode; // reacción de baile con música ('auto' por defecto)
   hideBug?: boolean; // opción en Ajustes para ocultar o mostrar a Bug tras desbloquearlo
   muteBugText?: boolean; // opción en Ajustes para silenciar el tren de texto («Bug dice:»)
@@ -172,7 +192,22 @@ export interface CustomBugPhrase {
   text: string;
 }
 
-export type BugUnlockMilestone = 'level3' | 'level4' | 'level5' | 'level25';
+export type BugUnlockMilestone =
+  | 'level3'
+  | 'level4'
+  | 'level5'
+  | 'level25'
+  | 'level32'
+  | 'level40'
+  | 'level46'
+  | 'level50'
+  | 'level56'
+  | 'level65'
+  | 'level74'
+  | 'level82'
+  | 'level90'
+  | 'secret_crown'
+  | 'secret_scouter';
 
 export interface ExerciseDropsetSessionState {
   currentWeightKg: number;

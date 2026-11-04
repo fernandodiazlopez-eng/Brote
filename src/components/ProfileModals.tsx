@@ -32,14 +32,15 @@ import {
   Upload,
   Volume2,
   X,
+  Zap,
 } from 'lucide-react';
 import {
-  clampRgbByte,
-  DEFAULT_BUG_HAT_COLORS,
-  formatRgbCode,
+  BUG_HATS_CATALOG,
+  getResolvedBugHatColor,
+  hexToRgbColor,
   isBugDefaultPhraseKey,
-  parseRgbCodeInput,
-  sanitizeRgbColor,
+  isValidBugWearableHatId,
+  rgbColorToHex,
 } from '../data/bugCompanionData';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { useI18n } from '../i18n/I18nContext';
@@ -49,12 +50,17 @@ import {
   BugDialogueCategory,
   BugHatId,
   BugMusicMode,
+  BugWearableHatId,
   CustomBugPhrase,
   RgbColor,
   ThemeMode,
   XpFormulas,
 } from '../types';
-import { requestTimerNotificationPermission } from '../utils/audioEffects';
+import {
+  playBugBounceSound,
+  playBugSuperSaiyanSound,
+  requestTimerNotificationPermission,
+} from '../utils/audioEffects';
 import {
   normalizeHexColor,
   setCustomDraftSwatchProperty,
@@ -71,6 +77,7 @@ import {
 } from '../utils/progressionRules';
 import { validateXpFormula } from '../utils/xpFormulaParser';
 import { BugPixelGraphic } from './BugCompanion';
+import { InteractiveColorPicker } from './InteractiveColorPicker';
 
 interface PointsSystemInfoModalProps {
   isOpen: boolean;
@@ -362,8 +369,14 @@ interface ProfileSettingsModalProps {
   onChangeBugMusicMode?: (mode: BugMusicMode) => void;
   bugSelectedHat?: BugHatId;
   onChangeBugSelectedHat?: (hat: BugHatId) => void;
-  bugHatColors?: Partial<Record<Exclude<BugHatId, 'none'>, RgbColor>>;
-  onChangeBugHatColor?: (hat: Exclude<BugHatId, 'none'>, color: RgbColor) => void;
+  bugHatColors?: Partial<Record<BugWearableHatId, RgbColor>>;
+  onChangeBugHatColor?: (hat: BugWearableHatId, color: RgbColor) => void;
+  bugUnlockedHats?: BugWearableHatId[];
+  isBugGrown?: boolean;
+  isBugSuperSaiyanUnlocked?: boolean;
+  bugDisableSuperSaiyan?: boolean;
+  onChangeBugDisableSuperSaiyan?: (disable: boolean) => void;
+  onUnlockSecretScouter?: () => void;
   deletedBugPhraseKeys?: string[];
   customBugPhrases?: CustomBugPhrase[];
   onAddCustomBugPhrase?: (category: BugDialogueCategory, text: string) => void;
@@ -405,6 +418,12 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   onChangeBugSelectedHat,
   bugHatColors,
   onChangeBugHatColor,
+  bugUnlockedHats = [],
+  isBugGrown = false,
+  isBugSuperSaiyanUnlocked = false,
+  bugDisableSuperSaiyan = false,
+  onChangeBugDisableSuperSaiyan,
+  onUnlockSecretScouter,
   deletedBugPhraseKeys = [],
   customBugPhrases = [],
   onAddCustomBugPhrase,
@@ -442,39 +461,51 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const [newBugPhraseDraft, setNewBugPhraseDraft] = useState('');
   const [backupFeedback, setBackupFeedback] = useState<'success' | 'error' | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const colorPickerInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [draftCustomHex, setDraftCustomHex] = useState<string>(() =>
-    (customAccentHex || '#c8ff00').toUpperCase()
-  );
-  const [showCustomHexError, setShowCustomHexError] = useState(false);
-
-  const resolvedHeadphonesColor = useMemo(
-    () => sanitizeRgbColor(bugHatColors?.headphones, DEFAULT_BUG_HAT_COLORS.headphones),
-    [bugHatColors?.headphones]
-  );
-  const resolvedBowColor = useMemo(
-    () => sanitizeRgbColor(bugHatColors?.bow, DEFAULT_BUG_HAT_COLORS.bow),
-    [bugHatColors?.bow]
+  const unlockedHatsSet = useMemo(
+    () => new Set<BugWearableHatId>(bugUnlockedHats),
+    [bugUnlockedHats]
   );
 
-  const editableHatId: Exclude<BugHatId, 'none'> | null =
-    isBugCustomizationUnlocked && (bugSelectedHat === 'headphones' || bugSelectedHat === 'bow')
+  const editableHatId: BugWearableHatId | null =
+    isBugCustomizationUnlocked &&
+    isValidBugWearableHatId(bugSelectedHat) &&
+    unlockedHatsSet.has(bugSelectedHat)
       ? bugSelectedHat
       : null;
 
-  const activeEditableHatRgb =
-    editableHatId === 'bow' ? resolvedBowColor : resolvedHeadphonesColor;
-
-  const [rgbCodeDraft, setRgbCodeDraft] = useState<string>(() =>
-    formatRgbCode(activeEditableHatRgb)
+  const activeEditableHatRgb = useMemo<RgbColor>(
+    () =>
+      editableHatId
+        ? getResolvedBugHatColor(editableHatId, bugHatColors)
+        : getResolvedBugHatColor('headphones', bugHatColors),
+    [editableHatId, bugHatColors]
   );
-  const [showRgbError, setShowRgbError] = useState<boolean>(false);
+
+  const [draftHatPreviewRgb, setDraftHatPreviewRgb] = useState<RgbColor | null>(null);
+  const [previewHop, setPreviewHop] = useState(false);
+  const [previewSsj, setPreviewSsj] = useState(false);
+  const previewTimerRef = useRef<number | null>(null);
+  const secretTapRef = useRef<{ count: number; lastTapMs: number }>({ count: 0, lastTapMs: 0 });
 
   useEffect(() => {
-    setRgbCodeDraft(formatRgbCode(activeEditableHatRgb));
-    setShowRgbError(false);
-  }, [editableHatId, activeEditableHatRgb.r, activeEditableHatRgb.g, activeEditableHatRgb.b]);
+    setDraftHatPreviewRgb(null);
+  }, [
+    editableHatId,
+    activeEditableHatRgb.r,
+    activeEditableHatRgb.g,
+    activeEditableHatRgb.b,
+    settingsSection,
+    isOpen,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (previewTimerRef.current !== null) {
+        window.clearTimeout(previewTimerRef.current);
+      }
+    };
+  }, []);
 
   const localizedExternalFormulas = useMemo(
     () => localizeXpFormulasIfDefault(xpFormulas, language),
@@ -502,16 +533,12 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
       setNewBugPhraseDraft('');
       setShowIOSInstallGuide(false);
       setBackupFeedback(null);
-      setShowCustomHexError(false);
-      setShowRgbError(false);
-      setDraftCustomHex((customAccentHex || '#c8ff00').toUpperCase());
+      setPreviewHop(false);
+      setPreviewSsj(false);
+      secretTapRef.current = { count: 0, lastTapMs: 0 };
+      setCustomDraftSwatchProperty(normalizeHexColor(customAccentHex) || '#c8ff00');
     }
   }, [isOpen, customAccentHex]);
-
-  useEffect(() => {
-    const validDraft = normalizeHexColor(draftCustomHex);
-    setCustomDraftSwatchProperty(validDraft || customAccentHex || '#c8ff00');
-  }, [draftCustomHex, customAccentHex]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -632,11 +659,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const monochromeLabel = themeMode === 'light' ? t.palette_negro : t.palette_blanco;
 
   const normalizedCustomSaved = normalizeHexColor(customAccentHex);
-  const normalizedDraftCustomHex = normalizeHexColor(draftCustomHex);
-  const isCustomHexAlreadyActive =
-    accentPalette === 'custom' &&
-    Boolean(normalizedCustomSaved) &&
-    normalizedDraftCustomHex === normalizedCustomSaved;
+  const appliedCustomAccentRgb: RgbColor =
+    hexToRgbColor(normalizedCustomSaved || '#c8ff00') ?? { r: 200, g: 255, b: 0 };
 
   const accentPaletteOptions: {
     id: AccentPaletteId;
@@ -663,26 +687,6 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
         ]
       : []),
   ];
-
-  const handleCustomHexInputChange = (rawVal: string) => {
-    const cleaned = rawVal.replace(/[^#0-9a-fA-F]/g, '').slice(0, 7).toUpperCase();
-    setDraftCustomHex(cleaned);
-    if (showCustomHexError && normalizeHexColor(cleaned)) {
-      setShowCustomHexError(false);
-    }
-  };
-
-  const handleSubmitCustomHex = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    const valid = normalizeHexColor(draftCustomHex);
-    if (!valid) {
-      setShowCustomHexError(true);
-      return;
-    }
-    setShowCustomHexError(false);
-    setDraftCustomHex(valid.toUpperCase());
-    onApplyCustomAccentHex(valid);
-  };
 
   const hasCustomFormulas =
     !areDefaultXpFormulas(xpFormulas) ||
@@ -758,34 +762,50 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
       ? t.settings_advanced_btn
       : t.advanced_texts_heading;
 
-  const equippedPreviewHat: BugHatId = isBugCustomizationUnlocked ? bugSelectedHat : 'none';
-  const equippedPreviewHatColor: RgbColor =
-    equippedPreviewHat === 'bow' ? resolvedBowColor : resolvedHeadphonesColor;
+  const equippedPreviewHat: BugHatId = editableHatId ?? 'none';
+  const equippedPreviewHatColor: RgbColor = draftHatPreviewRgb ?? activeEditableHatRgb;
 
-  const handleApplyRgbDraft = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!editableHatId || !onChangeBugHatColor) return;
-    const parsed = parseRgbCodeInput(rgbCodeDraft);
-    if (!parsed) {
-      setShowRgbError(true);
-      return;
+  const unlockedCatalogHats = BUG_HATS_CATALOG.filter((h) => unlockedHatsSet.has(h.id));
+  const lockedCatalogHats = BUG_HATS_CATALOG.filter((h) => !unlockedHatsSet.has(h.id));
+
+  const handleTapBugPreview = () => {
+    const now = Date.now();
+    if (now - secretTapRef.current.lastTapMs > 1400) {
+      secretTapRef.current = { count: 1, lastTapMs: now };
+    } else {
+      secretTapRef.current = { count: secretTapRef.current.count + 1, lastTapMs: now };
     }
-    setShowRgbError(false);
-    setRgbCodeDraft(formatRgbCode(parsed));
-    onChangeBugHatColor(editableHatId, parsed);
-  };
 
-  const handleUpdateRgbChannel = (channel: 'r' | 'g' | 'b', rawVal: string) => {
-    if (!editableHatId || !onChangeBugHatColor) return;
-    const digits = rawVal.replace(/\D/g, '').slice(0, 3);
-    const numeric = digits === '' ? 0 : clampRgbByte(Number.parseInt(digits, 10));
-    const nextColor: RgbColor = {
-      ...activeEditableHatRgb,
-      [channel]: numeric,
-    };
-    setShowRgbError(false);
-    setRgbCodeDraft(formatRgbCode(nextColor));
-    onChangeBugHatColor(editableHatId, nextColor);
+    if (secretTapRef.current.count >= 7) {
+      secretTapRef.current = { count: 0, lastTapMs: 0 };
+      onUnlockSecretScouter?.();
+    }
+
+    if (previewTimerRef.current !== null) {
+      window.clearTimeout(previewTimerRef.current);
+    }
+
+    if (isBugSuperSaiyanUnlocked && !bugDisableSuperSaiyan) {
+      setPreviewHop(false);
+      setPreviewSsj(true);
+      if (!muteBugBounceSound) {
+        playBugSuperSaiyanSound();
+      }
+      previewTimerRef.current = window.setTimeout(() => {
+        setPreviewSsj(false);
+        previewTimerRef.current = null;
+      }, 2150);
+    } else {
+      setPreviewSsj(false);
+      setPreviewHop(true);
+      if (!muteBugBounceSound) {
+        playBugBounceSound(0.6);
+      }
+      previewTimerRef.current = window.setTimeout(() => {
+        setPreviewHop(false);
+        previewTimerRef.current = null;
+      }, 360);
+    }
   };
 
   const getBugCategoryLabel = (cat: BugDialogueCategory) =>
@@ -975,8 +995,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <svg
-                      viewBox="-2 -6 20 20"
-                      className="w-6 h-6 shrink-0 overflow-visible"
+                      viewBox="-6 -14 28 30"
+                      className="w-7 h-7 shrink-0 overflow-visible"
                       shapeRendering="crispEdges"
                       aria-hidden="true"
                     >
@@ -984,6 +1004,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                         expression="happy"
                         hat={equippedPreviewHat}
                         hatColor={equippedPreviewHatColor}
+                        isGrown={isBugGrown}
                       />
                     </svg>
                     <span className="text-sm font-semibold text-fg truncate">
@@ -1171,12 +1192,23 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
         {/* SUB-PANTALLA: PERSONALIZAR BUG (VISIBILIDAD, MÚSICA, GORROS RGB Y FRASES) */}
         {settingsSection === 'bug' && isBugUnlocked && (
           <div className="pt-4 space-y-5 overflow-y-auto pr-0.5">
-            {/* Vista previa en vivo de Bug 8-bits */}
-            <div className="trophy-oled-window rounded-[4px] border border-subtle py-4 px-4 flex items-center justify-center">
+            {/* Vista previa interactiva en vivo de Bug 8-bits */}
+            <button
+              type="button"
+              onClick={handleTapBugPreview}
+              aria-label={t.settings_bug_label}
+              className="w-full trophy-oled-window rounded-[4px] border border-subtle py-4 px-4 flex items-center justify-center cursor-pointer active:scale-[0.99] transition-transform"
+            >
               <svg
-                viewBox="-6 -12 28 28"
-                className={`w-16 h-16 overflow-visible ${
-                  bugMusicMode === 'on' ? 'animate-bug-music-dance' : ''
+                viewBox="-10 -15 36 31"
+                className={`w-20 h-20 overflow-visible ${
+                  previewSsj
+                    ? 'animate-bug-ssj'
+                    : previewHop
+                    ? 'animate-bug-top-hop'
+                    : bugMusicMode === 'on'
+                    ? 'animate-bug-music-dance'
+                    : ''
                 }`}
                 shapeRendering="crispEdges"
                 aria-hidden="true"
@@ -1185,10 +1217,12 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                   expression="happy"
                   hat={equippedPreviewHat}
                   hatColor={equippedPreviewHatColor}
-                  showMusicNotes={bugMusicMode === 'on'}
+                  showMusicNotes={bugMusicMode === 'on' && !previewSsj}
+                  isGrown={isBugGrown}
+                  isSuperSaiyan={previewSsj}
                 />
               </svg>
-            </div>
+            </button>
 
             {/* Controles generales de Bug */}
             <div className="space-y-3">
@@ -1330,9 +1364,45 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                   </div>
                 </div>
               )}
+
+              {isBugSuperSaiyanUnlocked && onChangeBugDisableSuperSaiyan && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5 text-xs text-fg">
+                    <Zap className="w-3.5 h-3.5 text-accent shrink-0" />
+                    <span className="font-semibold">{t.settings_bug_ssj_label}</span>
+                  </div>
+                  <div
+                    role="group"
+                    aria-label={t.settings_bug_ssj_label}
+                    className="seg-group grid grid-cols-2 gap-1"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onChangeBugDisableSuperSaiyan(false)}
+                      aria-pressed={!bugDisableSuperSaiyan}
+                      className={`seg-btn min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
+                        !bugDisableSuperSaiyan ? 'seg-btn-active' : ''
+                      }`}
+                    >
+                      {t.settings_toggle_on}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onChangeBugDisableSuperSaiyan(true)}
+                      aria-pressed={bugDisableSuperSaiyan}
+                      className={`seg-btn min-h-[38px] px-3 py-1.5 text-xs flex items-center justify-center whitespace-nowrap ${
+                        bugDisableSuperSaiyan ? 'seg-btn-active' : ''
+                      }`}
+                    >
+                      {t.settings_toggle_off}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Gorros 8-bits y código RGB (desbloqueados al Nivel 25) + futuros sombreros ocultos */}
+            {/* Gorros 8-bits y selector de color táctil con vista previa + sombreros ocultos */}
             <div className="pt-4 border-t border-subtle space-y-3">
               <p className="font-display text-xs font-semibold uppercase tracking-wider text-accent">
                 {t.settings_bug_hats_heading}
@@ -1367,169 +1437,133 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               ) : (
                 <div className="space-y-3">
                   <div className="grid grid-cols-3 gap-2">
-                    {(
-                      [
-                        {
-                          id: 'none' as const,
-                          label: t.settings_bug_hat_none,
-                          color: undefined,
-                        },
-                        {
-                          id: 'headphones' as const,
-                          label: t.settings_bug_hat_headphones,
-                          color: resolvedHeadphonesColor,
-                        },
-                        {
-                          id: 'bow' as const,
-                          label: t.settings_bug_hat_bow,
-                          color: resolvedBowColor,
-                        },
-                      ] as const
-                    ).map((hatItem) => {
-                      const isSelected = bugSelectedHat === hatItem.id;
+                    <button
+                      type="button"
+                      onClick={() => onChangeBugSelectedHat?.('none')}
+                      aria-pressed={bugSelectedHat === 'none'}
+                      className={`min-h-[84px] p-2 rounded-[4px] border flex flex-col items-center justify-center gap-1.5 text-center transition cursor-pointer ${
+                        bugSelectedHat === 'none'
+                          ? 'bg-accent-soft border-accent-fill text-fg font-semibold'
+                          : 'bg-canvas border-subtle text-fg-secondary hover:bg-elevated'
+                      }`}
+                    >
+                      <svg
+                        viewBox="-6 -13 28 28"
+                        className="w-9 h-9 shrink-0 overflow-visible"
+                        shapeRendering="crispEdges"
+                        aria-hidden="true"
+                      >
+                        <BugPixelGraphic
+                          expression={bugSelectedHat === 'none' ? 'happy' : 'neutral'}
+                          hat="none"
+                          isGrown={isBugGrown}
+                        />
+                      </svg>
+                      <span className="text-[11px] leading-tight line-clamp-2">
+                        {t.settings_bug_hat_none}
+                      </span>
+                    </button>
+
+                    {unlockedCatalogHats.map((hatMeta) => {
+                      const isSelected = bugSelectedHat === hatMeta.id;
+                      const cardColor =
+                        isSelected && draftHatPreviewRgb
+                          ? draftHatPreviewRgb
+                          : getResolvedBugHatColor(hatMeta.id, bugHatColors);
                       return (
                         <button
-                          key={hatItem.id}
+                          key={hatMeta.id}
                           type="button"
-                          onClick={() => onChangeBugSelectedHat?.(hatItem.id)}
+                          onClick={() => onChangeBugSelectedHat?.(hatMeta.id)}
                           aria-pressed={isSelected}
-                          className={`min-h-[82px] p-2 rounded-[4px] border flex flex-col items-center justify-center gap-1.5 text-center transition cursor-pointer ${
+                          className={`min-h-[84px] p-2 rounded-[4px] border flex flex-col items-center justify-center gap-1.5 text-center transition cursor-pointer ${
                             isSelected
                               ? 'bg-accent-soft border-accent-fill text-fg font-semibold'
                               : 'bg-canvas border-subtle text-fg-secondary hover:bg-elevated'
                           }`}
                         >
                           <svg
-                            viewBox="-2 -6 20 20"
-                            className="w-8 h-8 shrink-0 overflow-visible"
+                            viewBox="-6 -13 28 28"
+                            className="w-9 h-9 shrink-0 overflow-visible"
                             shapeRendering="crispEdges"
                             aria-hidden="true"
                           >
                             <BugPixelGraphic
                               expression={isSelected ? 'happy' : 'neutral'}
-                              hat={hatItem.id}
-                              hatColor={hatItem.color}
+                              hat={hatMeta.id}
+                              hatColor={cardColor}
+                              isGrown={isBugGrown}
                             />
                           </svg>
                           <span className="text-[11px] leading-tight line-clamp-2">
-                            {hatItem.label}
+                            {t[hatMeta.labelKey]}
                           </span>
                         </button>
                       );
                     })}
                   </div>
 
-                  {/* Selector de color por código RGB para el gorro activo */}
+                  {/* Selector de color táctil con vista previa antes de aplicar (idéntico a Ajustes avanzados) */}
                   {editableHatId && onChangeBugHatColor && (
-                    <div className="rounded-[4px] bg-canvas border border-subtle p-3 space-y-2.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <label
-                          htmlFor="bug-hat-rgb-code"
-                          className="text-xs font-semibold text-fg"
-                        >
-                          {t.settings_bug_rgb_label}
-                        </label>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <svg
-                            viewBox="0 0 16 16"
-                            className="w-4 h-4 rounded-[2px] border border-subtle shrink-0"
-                            aria-hidden="true"
-                          >
-                            <rect
-                              width={16}
-                              height={16}
-                              fill={`rgb(${activeEditableHatRgb.r}, ${activeEditableHatRgb.g}, ${activeEditableHatRgb.b})`}
-                            />
-                          </svg>
-                          <span className="font-mono text-[11px] text-fg-muted tabular-nums">
-                            rgb({formatRgbCode(activeEditableHatRgb)})
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-2">
-                        {(['r', 'g', 'b'] as const).map((channel) => (
-                          <div key={channel} className="relative">
-                            <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 font-mono text-[10px] font-bold uppercase text-fg-muted">
-                              {channel}
-                            </span>
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              pattern="[0-9]*"
-                              value={String(activeEditableHatRgb[channel])}
-                              onChange={(e) => handleUpdateRgbChannel(channel, e.target.value)}
-                              aria-label={`${channel.toUpperCase()} (0-255)`}
-                              className="input-field w-full min-h-[38px] pl-6 pr-2 py-1 text-xs font-mono text-right tabular-nums"
-                            />
-                          </div>
-                        ))}
-                      </div>
-
-                      <form onSubmit={handleApplyRgbDraft} className="flex items-center gap-2">
-                        <input
-                          id="bug-hat-rgb-code"
-                          type="text"
-                          spellCheck={false}
-                          autoComplete="off"
-                          value={rgbCodeDraft}
-                          onChange={(e) => {
-                            setRgbCodeDraft(e.target.value);
-                            if (showRgbError && parseRgbCodeInput(e.target.value)) {
-                              setShowRgbError(false);
-                            }
-                          }}
-                          placeholder={t.settings_bug_rgb_placeholder}
-                          className={`input-field flex-1 min-w-0 min-h-[38px] px-3 py-1.5 font-mono text-xs tabular-nums ${
-                            showRgbError ? 'ring-1 ring-red-400/70' : ''
-                          }`}
-                        />
-                        <button
-                          type="submit"
-                          className="btn-primary min-h-[38px] px-3 py-1.5 text-xs whitespace-nowrap shrink-0"
-                        >
-                          {t.settings_bug_rgb_apply_btn}
-                        </button>
-                      </form>
-
-                      {showRgbError && (
-                        <p role="alert" className="text-[11px] font-medium text-red-400">
-                          {t.settings_bug_rgb_error}
-                        </p>
-                      )}
+                    <div className="rounded-[4px] bg-canvas border border-subtle p-3 space-y-2">
+                      <p className="text-xs font-semibold text-fg">{t.settings_bug_rgb_label}</p>
+                      <InteractiveColorPicker
+                        appliedColor={activeEditableHatRgb}
+                        isAppliedActive
+                        defaultCodeMode="rgb"
+                        applyLabel={t.settings_bug_rgb_apply_btn}
+                        activeLabel={t.advanced_custom_color_active_btn}
+                        previewLabel={t.color_picker_preview_label}
+                        currentLabel={t.color_picker_current_label}
+                        hintText={t.color_picker_adjust_hint}
+                        placeholder={t.settings_bug_rgb_placeholder}
+                        errorText={t.settings_bug_rgb_error}
+                        onDraftColorChange={(rgb) => setDraftHatPreviewRgb(rgb)}
+                        onApplyColor={(rgb) => {
+                          setDraftHatPreviewRgb(rgb);
+                          onChangeBugHatColor(editableHatId, rgb);
+                        }}
+                      />
                     </div>
                   )}
 
-                  {/* Futuros sombreros ocultos (sin revelar siluetas) */}
-                  <div className="grid grid-cols-3 gap-2 pt-0.5">
-                    {[0, 1, 2].map((mysteryIdx) => (
-                      <div
-                        key={`mystery-hat-${mysteryIdx}`}
-                        aria-label={`${t.settings_bug_hat_mystery_title} · ${t.settings_bug_hat_mystery_sub}`}
-                        className="min-h-[74px] p-2 rounded-[4px] bg-canvas/55 border border-dashed border-subtle flex flex-col items-center justify-center gap-1 text-center select-none opacity-80"
-                      >
-                        <div className="w-9 h-7 rounded-[3px] trophy-oled-window border border-subtle flex items-center justify-center">
-                          <svg
-                            viewBox="0 0 8 10"
-                            className="w-2.5 h-3"
-                            shapeRendering="crispEdges"
-                            aria-hidden="true"
+                  {/* Futuros sombreros y secretos aún bloqueados (sin revelar siluetas ni nombres) */}
+                  {lockedCatalogHats.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2 pt-0.5">
+                      {lockedCatalogHats.map((lockedHat) => {
+                        const subLabel = lockedHat.isSecret
+                          ? t.settings_bug_hat_secret_sub
+                          : `${language === 'en' ? 'Lv.' : 'Nv.'} ${lockedHat.unlockLevel}`;
+                        return (
+                          <div
+                            key={`mystery-hat-${lockedHat.id}`}
+                            aria-label={`${t.settings_bug_hat_mystery_title} · ${subLabel}`}
+                            className="min-h-[76px] p-2 rounded-[4px] bg-canvas/55 border border-dashed border-subtle flex flex-col items-center justify-center gap-1 text-center select-none opacity-80"
                           >
-                            <path
-                              d="M2 1h4v1H2zM1 2h1v1H1zM6 2h1v2H6zM4 4h2v1H4zM3 5h1v2H3zM3 8h1v1H3z"
-                              fill="var(--app-fg-muted)"
-                            />
-                          </svg>
-                        </div>
-                        <span className="font-mono text-[11px] font-bold text-fg-muted leading-none">
-                          {t.settings_bug_hat_mystery_title}
-                        </span>
-                        <span className="text-[10px] text-fg-muted leading-none truncate max-w-full">
-                          {t.settings_bug_hat_mystery_sub}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+                            <div className="w-9 h-7 rounded-[3px] trophy-oled-window border border-subtle flex items-center justify-center">
+                              <svg
+                                viewBox="0 0 8 10"
+                                className="w-2.5 h-3"
+                                shapeRendering="crispEdges"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  d="M2 1h4v1H2zM1 2h1v1H1zM6 2h1v2H6zM4 4h2v1H4zM3 5h1v2H3zM3 8h1v1H3z"
+                                  fill="var(--app-fg-muted)"
+                                />
+                              </svg>
+                            </div>
+                            <span className="font-mono text-[11px] font-bold text-fg-muted leading-none">
+                              {t.settings_bug_hat_mystery_title}
+                            </span>
+                            <span className="font-mono text-[10px] text-fg-muted leading-none tabular-nums truncate max-w-full">
+                              {subLabel}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1680,81 +1714,37 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
         {/* SECCIÓN DE AJUSTES AVANZADOS: COLOR POR CÓDIGO HEX + FÓRMULAS + TEXTOS + COPIA */}
         {settingsSection === 'advanced' && (
           <div className="pt-4 space-y-5 overflow-y-auto pr-0.5">
-            {/* Color personalizado por código HEX */}
-            <div className="space-y-2">
+            {/* Color secundario personalizado con vista previa antes de aplicar */}
+            <div className="space-y-2.5">
               <div className="flex items-center gap-1.5">
                 <Palette className="w-3.5 h-3.5 text-accent shrink-0" />
-                <label
-                  htmlFor="custom-hex-color-input"
-                  className="font-display text-xs font-semibold uppercase tracking-wider text-fg-secondary"
-                >
+                <p className="font-display text-xs font-semibold uppercase tracking-wider text-fg-secondary">
                   {t.advanced_custom_color_heading}
-                </label>
+                </p>
               </div>
 
-              <form onSubmit={handleSubmitCustomHex} className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => colorPickerInputRef.current?.click()}
-                  aria-label={t.advanced_custom_color_heading}
-                  className="btn-secondary min-h-[42px] w-[42px] flex items-center justify-center shrink-0"
-                >
-                  <span
-                    aria-hidden="true"
-                    className="w-5 h-5 rounded-[2px] palette-dot-custom-draft"
-                  />
-                </button>
-                <input
-                  ref={colorPickerInputRef}
-                  type="color"
-                  tabIndex={-1}
-                  aria-hidden="true"
-                  value={normalizedDraftCustomHex || normalizedCustomSaved || '#c8ff00'}
-                  onChange={(e) => {
-                    const picked = normalizeHexColor(e.target.value);
-                    if (picked) {
-                      setShowCustomHexError(false);
-                      setDraftCustomHex(picked.toUpperCase());
-                      onApplyCustomAccentHex(picked);
-                    }
-                  }}
-                  className="sr-only"
-                />
-
-                <input
-                  id="custom-hex-color-input"
-                  type="text"
-                  spellCheck={false}
-                  autoCapitalize="characters"
-                  autoComplete="off"
-                  value={draftCustomHex}
-                  onChange={(e) => handleCustomHexInputChange(e.target.value)}
+              <div className="rounded-[4px] bg-canvas border border-subtle p-3">
+                <InteractiveColorPicker
+                  appliedColor={appliedCustomAccentRgb}
+                  isAppliedActive={accentPalette === 'custom' && Boolean(normalizedCustomSaved)}
+                  defaultCodeMode="hex"
+                  applyLabel={t.advanced_custom_color_apply_btn}
+                  activeLabel={t.advanced_custom_color_active_btn}
+                  previewLabel={t.color_picker_preview_label}
+                  currentLabel={t.color_picker_current_label}
+                  hintText={t.color_picker_adjust_hint}
                   placeholder={t.advanced_custom_color_placeholder}
-                  className={`input-field flex-1 min-w-0 min-h-[42px] px-3 py-2 font-mono text-xs uppercase tracking-wider ${
-                    showCustomHexError ? 'ring-1 ring-red-400/70' : ''
-                  }`}
+                  errorText={t.advanced_custom_color_error}
+                  onDraftColorChange={(rgb) => {
+                    setCustomDraftSwatchProperty(rgbColorToHex(rgb));
+                  }}
+                  onApplyColor={(rgb) => {
+                    const hex = rgbColorToHex(rgb);
+                    setCustomDraftSwatchProperty(hex);
+                    onApplyCustomAccentHex(hex);
+                  }}
                 />
-
-                <button
-                  type="submit"
-                  className={`min-h-[42px] px-3.5 py-2 text-xs flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 ${
-                    isCustomHexAlreadyActive ? 'btn-secondary text-accent' : 'btn-primary'
-                  }`}
-                >
-                  {isCustomHexAlreadyActive && <Check className="w-3.5 h-3.5 shrink-0" />}
-                  <span>
-                    {isCustomHexAlreadyActive
-                      ? t.advanced_custom_color_active_btn
-                      : t.advanced_custom_color_apply_btn}
-                  </span>
-                </button>
-              </form>
-
-              {showCustomHexError && (
-                <p role="alert" className="text-[11px] font-medium text-red-400">
-                  {t.advanced_custom_color_error}
-                </p>
-              )}
+              </div>
             </div>
 
             <div className="pt-4 border-t border-subtle space-y-3.5">

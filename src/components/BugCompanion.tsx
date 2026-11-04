@@ -16,10 +16,12 @@ import {
   clampRgbByte,
   DEFAULT_BUG_HAT_COLORS,
   getBugMilestoneCopy,
+  getMilestonePreviewConfig,
+  getResolvedBugHatColor,
 } from '../data/bugCompanionData';
 import { useI18n } from '../i18n/I18nContext';
 import { BugHatId, BugMusicMode, BugUnlockMilestone, RgbColor } from '../types';
-import { playBugBounceSound } from '../utils/audioEffects';
+import { playBugBounceSound, playBugSuperSaiyanSound } from '../utils/audioEffects';
 
 export type BugEyeExpression =
   | 'neutral'
@@ -44,6 +46,9 @@ export interface BugReactionContextValue {
   musicMode: BugMusicMode;
   equippedHat: BugHatId;
   equippedHatColor: RgbColor;
+  isGrown: boolean;
+  canSuperSaiyan: boolean;
+  onUnlockSecretCrown?: () => void;
 }
 
 export const BugReactionContext = createContext<BugReactionContextValue>({
@@ -58,6 +63,8 @@ export const BugReactionContext = createContext<BugReactionContextValue>({
   musicMode: 'auto',
   equippedHat: 'none',
   equippedHatColor: DEFAULT_BUG_HAT_COLORS.headphones,
+  isGrown: false,
+  canSuperSaiyan: false,
 });
 
 interface PixelSparkParticle {
@@ -106,6 +113,8 @@ interface BugPixelGraphicProps {
   hatColor?: RgbColor;
   showSleepingZzz?: boolean;
   showMusicNotes?: boolean;
+  isGrown?: boolean;
+  isSuperSaiyan?: boolean;
 }
 
 export const BugPixelGraphic: React.FC<BugPixelGraphicProps> = React.memo(({
@@ -117,111 +126,171 @@ export const BugPixelGraphic: React.FC<BugPixelGraphicProps> = React.memo(({
   hatColor,
   showSleepingZzz = false,
   showMusicNotes = false,
+  isGrown = false,
+  isSuperSaiyan = false,
 }) => {
   const resolvedHatShades =
     hat === 'none'
       ? null
-      : buildHatShades(
-          hatColor ??
-            (hat === 'bow' ? DEFAULT_BUG_HAT_COLORS.bow : DEFAULT_BUG_HAT_COLORS.headphones)
-        );
+      : buildHatShades(hatColor ?? getResolvedBugHatColor(hat));
+
+  const growthTransform = isGrown
+    ? isFullCircle
+      ? 'translate(8 8) scale(1.13) translate(-8 -8)'
+      : 'translate(8 14) scale(1.13) translate(-8 -14)'
+    : undefined;
 
   return (
-    <g shapeRendering="crispEdges">
+    <g shapeRendering="crispEdges" transform={growthTransform}>
+      {/* Aura dorada llameante 8-bits Super Saiyajin (Nivel 90) detrás de Bug */}
+      {isSuperSaiyan && (
+        <g className="animate-bug-ssj-aura">
+          <g fill="#ff9e00" fillOpacity={0.45}>
+            <rect x={-3} y={2} width={22} height={12} />
+            <rect x={-2} y={-3} width={20} height={6} />
+            <rect x={0} y={-7} width={16} height={5} />
+            <rect x={1} y={-10} width={2} height={3} />
+            <rect x={7} y={-12} width={2} height={5} />
+            <rect x={13} y={-10} width={2} height={3} />
+          </g>
+          <g fill="#ffe600" fillOpacity={0.62}>
+            <rect x={-1} y={3} width={18} height={11} />
+            <rect x={1} y={-4} width={14} height={7} />
+            <rect x={4} y={-8} width={8} height={4} />
+          </g>
+        </g>
+      )}
+
       <g className={expression === 'sleeping' && !isFullCircle ? 'animate-bug-sleep-breathe' : undefined}>
         <path
           d={isFullCircle ? BUG_FULL_CIRCLE_PATH : BUG_PERCHED_BODY_PATH}
-          fill="var(--app-accent-fill)"
+          fill={isSuperSaiyan ? '#ffd60a' : 'var(--app-accent-fill)'}
         />
         {/* Brillo especular pixelado sutil en la esquina superior izquierda */}
-        <rect x={3} y={2} width={2} height={1} fill="#ffffff" fillOpacity={0.28} />
-        <rect x={2} y={3} width={1} height={1} fill="#ffffff" fillOpacity={0.22} />
+        <rect x={3} y={2} width={2} height={1} fill="#ffffff" fillOpacity={isSuperSaiyan ? 0.55 : 0.28} />
+        <rect x={2} y={3} width={1} height={1} fill="#ffffff" fillOpacity={isSuperSaiyan ? 0.42 : 0.22} />
 
-        {/* Expresiones de los ojos 8-bits */}
-        {expression === 'neutral' && (
-          <g fill="var(--app-accent-fg)">
-            <rect x={4 + gazeX} y={6 + gazeY} width={2} height={3} />
-            <rect x={10 + gazeX} y={6 + gazeY} width={2} height={3} />
-          </g>
-        )}
-
-        {expression === 'blink' && (
-          <g fill="var(--app-accent-fg)">
-            <rect x={4 + gazeX} y={7 + gazeY} width={2} height={1} />
-            <rect x={10 + gazeX} y={7 + gazeY} width={2} height={1} />
-          </g>
-        )}
-
-        {expression === 'sleeping' && (
-          <g fill="var(--app-accent-fg)">
-            <rect x={3} y={8} width={4} height={1} />
-            <rect x={9} y={8} width={4} height={1} />
-          </g>
-        )}
-
-        {expression === 'happy' && (
-          <g fill="var(--app-accent-fg)">
-            {/* Arco feliz izquierdo (^ sin corazones) */}
-            <rect x={3} y={8} width={1} height={1} />
-            <rect x={4} y={7} width={2} height={1} />
-            <rect x={6} y={8} width={1} height={1} />
-            {/* Arco feliz derecho */}
-            <rect x={9} y={8} width={1} height={1} />
-            <rect x={10} y={7} width={2} height={1} />
-            <rect x={12} y={8} width={1} height={1} />
-          </g>
-        )}
-
-        {expression === 'sad' && (
-          <g fill="var(--app-accent-fg)">
-            {/* Ojos tristes inclinados hacia el exterior */}
-            <rect x={4} y={7} width={2} height={1} />
-            <rect x={3} y={8} width={2} height={1} />
-            <rect x={10} y={7} width={2} height={1} />
-            <rect x={11} y={8} width={2} height={1} />
-          </g>
-        )}
-
-        {expression === 'confused' && (
+        {/* Ojos Super Saiyajin turquesa-esmeralda o expresiones normales 8-bits */}
+        {isSuperSaiyan ? (
           <g>
-            {/* Mirada confundida asimétrica mirando al usuario */}
-            <g fill="var(--app-accent-fg)">
-              {/* Ceja izquierda alzada + ojo grande */}
-              <rect x={3} y={4} width={3} height={1} />
-              <rect x={3} y={6} width={3} height={3} />
-              {/* Ojo derecho entrecerrado */}
-              <rect x={9} y={6} width={4} height={1} />
-              <rect x={10} y={7} width={2} height={2} />
-            </g>
-            {/* Signo de interrogación 8-bits (?) sobre la cabeza */}
-            <g fill="var(--app-accent-fill)">
-              <rect x={15} y={-9} width={3} height={1} />
-              <rect x={14} y={-8} width={1} height={1} />
-              <rect x={18} y={-8} width={1} height={2} />
-              <rect x={16} y={-6} width={2} height={1} />
-              <rect x={16} y={-5} width={1.2} height={1.5} />
-              <rect x={16} y={-2.5} width={1.4} height={1.4} />
-            </g>
+            {/* Cejas inclinadas de poder */}
+            <rect x={3} y={5} width={2} height={1} fill="#b45309" />
+            <rect x={5} y={6} width={2} height={1} fill="#b45309" />
+            <rect x={11} y={5} width={2} height={1} fill="#b45309" />
+            <rect x={9} y={6} width={2} height={1} fill="#b45309" />
+            {/* Ojos esmeralda brillante */}
+            <rect x={4} y={7} width={3} height={2} fill="#00bfa5" />
+            <rect x={4} y={7} width={2} height={1} fill="#64ffda" />
+            <rect x={9} y={7} width={3} height={2} fill="#00bfa5" />
+            <rect x={10} y={7} width={2} height={1} fill="#64ffda" />
           </g>
+        ) : (
+          <>
+            {expression === 'neutral' && (
+              <g fill="var(--app-accent-fg)">
+                <rect x={4 + gazeX} y={6 + gazeY} width={2} height={3} />
+                <rect x={10 + gazeX} y={6 + gazeY} width={2} height={3} />
+              </g>
+            )}
+
+            {expression === 'blink' && (
+              <g fill="var(--app-accent-fg)">
+                <rect x={4 + gazeX} y={7 + gazeY} width={2} height={1} />
+                <rect x={10 + gazeX} y={7 + gazeY} width={2} height={1} />
+              </g>
+            )}
+
+            {expression === 'sleeping' && (
+              <g fill="var(--app-accent-fg)">
+                <rect x={3} y={8} width={4} height={1} />
+                <rect x={9} y={8} width={4} height={1} />
+              </g>
+            )}
+
+            {expression === 'happy' && (
+              <g fill="var(--app-accent-fg)">
+                {/* Arco feliz izquierdo (^ sin corazones) */}
+                <rect x={3} y={8} width={1} height={1} />
+                <rect x={4} y={7} width={2} height={1} />
+                <rect x={6} y={8} width={1} height={1} />
+                {/* Arco feliz derecho */}
+                <rect x={9} y={8} width={1} height={1} />
+                <rect x={10} y={7} width={2} height={1} />
+                <rect x={12} y={8} width={1} height={1} />
+              </g>
+            )}
+
+            {expression === 'sad' && (
+              <g fill="var(--app-accent-fg)">
+                {/* Ojos tristes inclinados hacia el exterior */}
+                <rect x={4} y={7} width={2} height={1} />
+                <rect x={3} y={8} width={2} height={1} />
+                <rect x={10} y={7} width={2} height={1} />
+                <rect x={11} y={8} width={2} height={1} />
+              </g>
+            )}
+
+            {expression === 'confused' && (
+              <g>
+                {/* Mirada confundida asimétrica mirando al usuario */}
+                <g fill="var(--app-accent-fg)">
+                  <rect x={3} y={4} width={3} height={1} />
+                  <rect x={3} y={6} width={3} height={3} />
+                  <rect x={9} y={6} width={4} height={1} />
+                  <rect x={10} y={7} width={2} height={2} />
+                </g>
+                <g fill="var(--app-accent-fill)">
+                  <rect x={15} y={-9} width={3} height={1} />
+                  <rect x={14} y={-8} width={1} height={1} />
+                  <rect x={18} y={-8} width={1} height={2} />
+                  <rect x={16} y={-6} width={2} height={1} />
+                  <rect x={16} y={-5} width={1.2} height={1.5} />
+                  <rect x={16} y={-2.5} width={1.4} height={1.4} />
+                </g>
+              </g>
+            )}
+
+            {expression === 'scared' && (
+              <g>
+                <rect x={7} y={-8} width={2} height={3.5} fill="var(--app-accent-fill)" />
+                <rect x={7} y={-3.5} width={2} height={1.5} fill="var(--app-accent-fill)" />
+                <rect x={3} y={5} width={4} height={4} fill="var(--app-accent-fg)" />
+                <rect x={4} y={6} width={2} height={2} fill="var(--app-accent-fill)" />
+                <rect x={9} y={5} width={4} height={4} fill="var(--app-accent-fg)" />
+                <rect x={10} y={6} width={2} height={2} fill="var(--app-accent-fill)" />
+              </g>
+            )}
+          </>
         )}
 
-        {expression === 'scared' && (
+        {/* Cabello dorado erizado 8-bits de Super Saiyajin (Nivel 90) */}
+        {isSuperSaiyan && (
           <g>
-            {/* Signo de exclamación 8-bits sobre la cabeza al asustarse con la alarma */}
-            <rect x={7} y={-8} width={2} height={3.5} fill="var(--app-accent-fill)" />
-            <rect x={7} y={-3.5} width={2} height={1.5} fill="var(--app-accent-fill)" />
-            {/* Ojos desorbitados 8-bits (anillos abiertos 4×4 de alto contraste) */}
-            <rect x={3} y={5} width={4} height={4} fill="var(--app-accent-fg)" />
-            <rect x={4} y={6} width={2} height={2} fill="var(--app-accent-fill)" />
-            <rect x={9} y={5} width={4} height={4} fill="var(--app-accent-fg)" />
-            <rect x={10} y={6} width={2} height={2} fill="var(--app-accent-fill)" />
+            {/* Raíz y volumen base */}
+            <rect x={2} y={-2} width={12} height={3} fill="#ffe600" />
+            <rect x={3} y={0} width={10} height={1} fill="#d97706" />
+            {/* Mechón exterior izquierdo */}
+            <rect x={0} y={-4} width={3} height={3} fill="#ffe600" />
+            <rect x={-1} y={-6} width={2} height={2} fill="#fff799" />
+            {/* Mechón medio izquierdo */}
+            <rect x={3} y={-7} width={3} height={5} fill="#ffe600" />
+            <rect x={3} y={-9} width={2} height={2} fill="#fff799" />
+            {/* Mechón central principal */}
+            <rect x={6} y={-9} width={4} height={7} fill="#ffe600" />
+            <rect x={7} y={-11} width={2} height={3} fill="#fffbe6" />
+            <rect x={9} y={-7} width={1} height={5} fill="#e69b00" />
+            {/* Mechón medio derecho */}
+            <rect x={10} y={-7} width={3} height={5} fill="#ffe600" />
+            <rect x={11} y={-9} width={2} height={2} fill="#fff799" />
+            {/* Mechón exterior derecho */}
+            <rect x={13} y={-4} width={3} height={3} fill="#e69b00" />
+            <rect x={15} y={-6} width={2} height={2} fill="#ffe600" />
           </g>
         )}
 
-        {/* Gorros 8-bits personalizables con código RGB (Nivel 25+) */}
+        {/* Gorros y accesorios 8-bits personalizables (Nivel 25+ y Secretos) */}
         {hat === 'headphones' && resolvedHatShades && (
           <g>
-            {/* Diadema superior */}
             <rect x={4} y={-2} width={8} height={2} fill={resolvedHatShades.main} />
             <rect x={5} y={-2} width={6} height={1} fill={resolvedHatShades.hi} />
             <rect x={2} y={-1} width={2} height={2} fill={resolvedHatShades.main} />
@@ -230,11 +299,9 @@ export const BugPixelGraphic: React.FC<BugPixelGraphicProps> = React.memo(({
             <rect x={14} y={1} width={2} height={2} fill={resolvedHatShades.main} />
             <rect x={-1} y={3} width={1} height={1} fill={resolvedHatShades.shade} />
             <rect x={16} y={3} width={1} height={1} fill={resolvedHatShades.shade} />
-            {/* Auricular izquierdo */}
             <rect x={-2} y={4} width={3} height={5} fill={resolvedHatShades.main} />
             <rect x={0} y={4} width={1} height={5} fill={resolvedHatShades.shade} />
             <rect x={-2} y={5} width={1} height={2} fill={resolvedHatShades.hi} />
-            {/* Auricular derecho */}
             <rect x={15} y={4} width={3} height={5} fill={resolvedHatShades.main} />
             <rect x={15} y={4} width={1} height={5} fill={resolvedHatShades.shade} />
             <rect x={17} y={5} width={1} height={2} fill={resolvedHatShades.hi} />
@@ -243,26 +310,210 @@ export const BugPixelGraphic: React.FC<BugPixelGraphicProps> = React.memo(({
 
         {hat === 'bow' && resolvedHatShades && (
           <g>
-            {/* Lazo izquierdo */}
             <rect x={3} y={-3} width={3} height={4} fill={resolvedHatShades.main} />
             <rect x={6} y={-2} width={1} height={2} fill={resolvedHatShades.main} />
             <rect x={3} y={-3} width={2} height={1} fill={resolvedHatShades.hi} />
             <rect x={3} y={0} width={3} height={1} fill={resolvedHatShades.shade} />
-            {/* Lazo derecho */}
             <rect x={10} y={-3} width={3} height={4} fill={resolvedHatShades.main} />
             <rect x={9} y={-2} width={1} height={2} fill={resolvedHatShades.main} />
             <rect x={11} y={-3} width={2} height={1} fill={resolvedHatShades.hi} />
             <rect x={10} y={0} width={3} height={1} fill={resolvedHatShades.shade} />
-            {/* Nudo central */}
             <rect x={7} y={-2} width={2} height={3} fill={resolvedHatShades.shade} />
             <rect x={7} y={-2} width={2} height={1} fill={resolvedHatShades.hi} />
             <rect x={7} y={-1} width={2} height={1} fill={resolvedHatShades.main} />
           </g>
         )}
+
+        {hat === 'plunger' && resolvedHatShades && (
+          <g>
+            {/* Palo de madera del desatascador */}
+            <rect x={7} y={-9} width={2} height={1} fill="#e6be8a" />
+            <rect x={7} y={-8} width={2} height={5} fill="#b07d4f" />
+            <rect x={7} y={-8} width={1} height={5} fill="#deb07c" />
+            {/* Ventosa de goma con color personalizable */}
+            <rect x={6} y={-3} width={4} height={1} fill={resolvedHatShades.main} />
+            <rect x={6} y={-3} width={2} height={1} fill={resolvedHatShades.hi} />
+            <rect x={4} y={-2} width={8} height={2} fill={resolvedHatShades.main} />
+            <rect x={4} y={-2} width={3} height={2} fill={resolvedHatShades.hi} />
+            <rect x={10} y={-2} width={2} height={2} fill={resolvedHatShades.shade} />
+            <rect x={2} y={0} width={12} height={1} fill={resolvedHatShades.shade} />
+            <rect x={3} y={0} width={3} height={1} fill={resolvedHatShades.hi} />
+          </g>
+        )}
+
+        {hat === 'robot_antenna' && resolvedHatShades && (
+          <g>
+            {/* Base metálica en la cabeza */}
+            <rect x={5} y={-1} width={6} height={2} fill="#64748b" />
+            <rect x={5} y={-1} width={3} height={1} fill="#cbd5e1" />
+            <rect x={9} y={0} width={2} height={1} fill="#334155" />
+            <rect x={6} y={-2} width={4} height={1} fill="#94a3b8" />
+            {/* Mástil cromado */}
+            <rect x={7} y={-5} width={1} height={3} fill="#e2e8f0" />
+            <rect x={8} y={-5} width={1} height={3} fill="#64748b" />
+            {/* Orbe luminoso + ondas de señal */}
+            <rect x={6} y={-8} width={4} height={3} fill={resolvedHatShades.main} />
+            <rect x={7} y={-9} width={2} height={1} fill={resolvedHatShades.hi} />
+            <rect x={7} y={-8} width={1} height={1} fill="#ffffff" />
+            <rect x={3} y={-8} width={1} height={2} fill={resolvedHatShades.hi} fillOpacity={0.85} />
+            <rect x={12} y={-8} width={1} height={2} fill={resolvedHatShades.hi} fillOpacity={0.85} />
+            <rect x={1} y={-9} width={1} height={4} fill={resolvedHatShades.main} fillOpacity={0.5} />
+            <rect x={14} y={-9} width={1} height={4} fill={resolvedHatShades.main} fillOpacity={0.5} />
+          </g>
+        )}
+
+        {hat === 'cowboy' && resolvedHatShades && (
+          <g>
+            {/* Copa vaquera con hendidura central */}
+            <rect x={4} y={-5} width={3} height={1} fill={resolvedHatShades.hi} />
+            <rect x={9} y={-5} width={3} height={1} fill={resolvedHatShades.main} />
+            <rect x={3} y={-4} width={10} height={3} fill={resolvedHatShades.main} />
+            <rect x={7} y={-4} width={2} height={1} fill={resolvedHatShades.shade} />
+            <rect x={3} y={-4} width={3} height={2} fill={resolvedHatShades.hi} />
+            <rect x={11} y={-4} width={2} height={3} fill={resolvedHatShades.shade} />
+            {/* Cinta con hebilla dorada */}
+            <rect x={3} y={-1} width={10} height={1} fill={resolvedHatShades.shade} />
+            <rect x={7} y={-1} width={2} height={1} fill="#ffd166" />
+            {/* Ala ancha curvada en los extremos */}
+            <rect x={-1} y={0} width={18} height={1} fill={resolvedHatShades.main} />
+            <rect x={0} y={1} width={16} height={1} fill={resolvedHatShades.shade} />
+            <rect x={-2} y={-2} width={2} height={2} fill={resolvedHatShades.hi} />
+            <rect x={16} y={-2} width={2} height={2} fill={resolvedHatShades.main} />
+          </g>
+        )}
+
+        {hat === 'pirate' && resolvedHatShades && (
+          <g>
+            {/* Pañuelo pirata y lazo lateral */}
+            <rect x={2} y={0} width={12} height={2} fill={resolvedHatShades.main} />
+            <rect x={14} y={1} width={2} height={2} fill={resolvedHatShades.shade} />
+            <rect x={15} y={3} width={2} height={1} fill={resolvedHatShades.main} />
+            {/* Bicornio oscuro de capitán */}
+            <rect x={0} y={-3} width={16} height={3} fill="#161922" />
+            <rect x={2} y={-5} width={12} height={2} fill="#161922" />
+            <rect x={5} y={-6} width={6} height={1} fill="#161922" />
+            {/* Ribete superior y pluma del color elegido */}
+            <rect x={5} y={-7} width={6} height={1} fill={resolvedHatShades.hi} />
+            <rect x={2} y={-6} width={3} height={1} fill={resolvedHatShades.hi} />
+            <rect x={11} y={-6} width={3} height={1} fill={resolvedHatShades.main} />
+            <rect x={-1} y={-4} width={3} height={1} fill={resolvedHatShades.hi} />
+            <rect x={14} y={-4} width={3} height={1} fill={resolvedHatShades.main} />
+            <rect x={13} y={-8} width={3} height={2} fill={resolvedHatShades.hi} />
+            <rect x={15} y={-7} width={2} height={2} fill={resolvedHatShades.main} />
+            {/* Calavera pixelada central */}
+            <rect x={6} y={-4} width={4} height={2} fill="#f8fafc" />
+            <rect x={6.5} y={-3.5} width={1} height={1} fill="#161922" />
+            <rect x={8.5} y={-3.5} width={1} height={1} fill="#161922" />
+            <rect x={7} y={-2} width={2} height={1} fill="#e2e8f0" />
+            <rect x={5} y={-2} width={1} height={1} fill="#cbd5e1" />
+            <rect x={10} y={-2} width={1} height={1} fill="#cbd5e1" />
+          </g>
+        )}
+
+        {hat === 'horns' && resolvedHatShades && (
+          <g>
+            {/* Cuerno izquierdo curvado */}
+            <rect x={2} y={0} width={3} height={2} fill={resolvedHatShades.shade} />
+            <rect x={0} y={-2} width={3} height={2} fill={resolvedHatShades.main} />
+            <rect x={-1} y={-4} width={2} height={2} fill={resolvedHatShades.main} />
+            <rect x={0} y={-6} width={2} height={2} fill={resolvedHatShades.hi} />
+            <rect x={1} y={-7} width={1} height={1} fill="#ffffff" />
+            {/* Cuerno derecho curvado */}
+            <rect x={11} y={0} width={3} height={2} fill={resolvedHatShades.shade} />
+            <rect x={13} y={-2} width={3} height={2} fill={resolvedHatShades.main} />
+            <rect x={15} y={-4} width={2} height={2} fill={resolvedHatShades.main} />
+            <rect x={14} y={-6} width={2} height={2} fill={resolvedHatShades.hi} />
+            <rect x={14} y={-7} width={1} height={1} fill="#ffffff" />
+          </g>
+        )}
+
+        {hat === 'halo' && resolvedHatShades && (
+          <g>
+            {/* Aureola flotante luminosa sobre Bug */}
+            <rect x={2} y={-6} width={12} height={4} fill={resolvedHatShades.hi} fillOpacity={0.22} />
+            <rect x={3} y={-6} width={10} height={1} fill={resolvedHatShades.hi} />
+            <rect x={5} y={-6} width={3} height={1} fill="#ffffff" />
+            <rect x={2} y={-5} width={2} height={2} fill={resolvedHatShades.main} />
+            <rect x={12} y={-5} width={2} height={2} fill={resolvedHatShades.shade} />
+            <rect x={3} y={-3} width={10} height={1} fill={resolvedHatShades.main} />
+            <rect x={9} y={-3} width={4} height={1} fill={resolvedHatShades.shade} />
+          </g>
+        )}
+
+        {hat === 'wizard' && resolvedHatShades && (
+          <g>
+            {/* Cono puntiagudo inclinado de mago */}
+            <rect x={10} y={-9} width={2} height={1} fill={resolvedHatShades.hi} />
+            <rect x={8} y={-8} width={3} height={1} fill={resolvedHatShades.hi} />
+            <rect x={6} y={-7} width={4} height={2} fill={resolvedHatShades.main} />
+            <rect x={6} y={-7} width={2} height={2} fill={resolvedHatShades.hi} />
+            <rect x={5} y={-5} width={6} height={2} fill={resolvedHatShades.main} />
+            <rect x={5} y={-5} width={2} height={2} fill={resolvedHatShades.hi} />
+            <rect x={10} y={-5} width={1} height={2} fill={resolvedHatShades.shade} />
+            <rect x={3} y={-3} width={10} height={2} fill={resolvedHatShades.main} />
+            <rect x={3} y={-3} width={3} height={2} fill={resolvedHatShades.hi} />
+            <rect x={11} y={-3} width={2} height={2} fill={resolvedHatShades.shade} />
+            {/* Estrella mística y banda dorada */}
+            <rect x={8} y={-5} width={1} height={1} fill="#fff3b0" />
+            <rect x={3} y={-1} width={10} height={1} fill="#ffd166" />
+            <rect x={10} y={-1} width={3} height={1} fill="#e09f3e" />
+            {/* Ala ancha de mago */}
+            <rect x={-1} y={0} width={18} height={1} fill={resolvedHatShades.main} />
+            <rect x={-1} y={0} width={5} height={1} fill={resolvedHatShades.hi} />
+            <rect x={1} y={1} width={14} height={1} fill={resolvedHatShades.shade} />
+          </g>
+        )}
+
+        {hat === 'crown' && resolvedHatShades && (
+          <g>
+            {/* Corona imperial 8-bits (Secreto 1) */}
+            <rect x={3} y={-2} width={10} height={3} fill={resolvedHatShades.main} />
+            <rect x={3} y={0} width={10} height={1} fill={resolvedHatShades.shade} />
+            <rect x={3} y={-2} width={2} height={2} fill={resolvedHatShades.hi} />
+            <rect x={3} y={-5} width={2} height={3} fill={resolvedHatShades.hi} />
+            <rect x={3} y={-6} width={1} height={1} fill="#ffffff" />
+            <rect x={7} y={-6} width={2} height={4} fill={resolvedHatShades.main} />
+            <rect x={7} y={-6} width={1} height={4} fill={resolvedHatShades.hi} />
+            <rect x={7} y={-7} width={2} height={1} fill="#ffffff" />
+            <rect x={11} y={-5} width={2} height={3} fill={resolvedHatShades.shade} />
+            <rect x={12} y={-6} width={1} height={1} fill="#ffffff" />
+            {/* Gemas engarzadas */}
+            <rect x={7} y={-2} width={2} height={2} fill="#00f5d4" />
+            <rect x={4} y={-1} width={1} height={1} fill="#ff2a6d" />
+            <rect x={11} y={-1} width={1} height={1} fill="#ff2a6d" />
+          </g>
+        )}
+
+        {hat === 'scouter' && resolvedHatShades && (
+          <g>
+            {/* Visor Scouter cibernético sobre el ojo izquierdo (Secreto 2) */}
+            <rect x={-2} y={5} width={3} height={5} fill="#e2e8f0" />
+            <rect x={0} y={5} width={1} height={5} fill="#64748b" />
+            <rect x={-1} y={7} width={1} height={2} fill="#ef4444" />
+            <rect x={0} y={4} width={8} height={1} fill="#cbd5e1" />
+            <rect x={2} y={5} width={6} height={5} fill={resolvedHatShades.main} fillOpacity={0.58} />
+            <rect x={2} y={9.4} width={6} height={0.7} fill={resolvedHatShades.hi} fillOpacity={0.9} />
+            <rect x={7.3} y={5} width={0.7} height={5} fill={resolvedHatShades.hi} fillOpacity={0.9} />
+            <rect x={3} y={6} width={1.6} height={0.6} fill="#ffffff" fillOpacity={0.92} />
+            <rect x={3} y={7.4} width={1} height={0.6} fill="#ffffff" fillOpacity={0.92} />
+          </g>
+        )}
       </g>
 
+      {/* Rayos bioeléctricos 8-bits de Super Saiyajin */}
+      {isSuperSaiyan && (
+        <g className="animate-bug-ssj-sparks">
+          <rect x={-3} y={0} width={1} height={3} fill="#7df9ff" />
+          <rect x={-2} y={3} width={1} height={2} fill="#ffffff" />
+          <rect x={18} y={-2} width={1} height={3} fill="#7df9ff" />
+          <rect x={17} y={1} width={1} height={2} fill="#ffffff" />
+          <rect x={2} y={-11} width={2} height={1} fill="#7df9ff" />
+          <rect x={13} y={-10} width={1} height={2} fill="#ffffff" />
+        </g>
+      )}
+
       {/* Zzz flotantes 8-bits mientras duerme (22:00 – 06:00) */}
-      {showSleepingZzz && (
+      {showSleepingZzz && !isSuperSaiyan && (
         <g fill="var(--app-accent-fill)">
           <g className="animate-bug-zzz-1">
             <rect x={14} y={-4} width={3} height={0.9} />
@@ -285,16 +536,14 @@ export const BugPixelGraphic: React.FC<BugPixelGraphicProps> = React.memo(({
       )}
 
       {/* Notas musicales 8-bits sobre la cabeza al bailar con música */}
-      {showMusicNotes && (
+      {showMusicNotes && !isSuperSaiyan && (
         <g fill="var(--app-accent-fill)">
-          {/* Nota izquierda (♪) */}
           <g className="animate-bug-note-1">
             <rect x={-3.5} y={-5.5} width={2.2} height={1.8} />
             <rect x={-2.2} y={-9.5} width={0.9} height={4.5} />
             <rect x={-1.3} y={-9.5} width={1.6} height={0.9} />
             <rect x={-0.5} y={-8.6} width={0.9} height={0.9} />
           </g>
-          {/* Nota doble derecha (♫) */}
           <g className="animate-bug-note-2">
             <rect x={15} y={-5.5} width={2} height={1.8} />
             <rect x={16.1} y={-9.5} width={0.9} height={4.5} />
@@ -337,6 +586,9 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
     musicMode,
     equippedHat,
     equippedHatColor,
+    isGrown,
+    canSuperSaiyan,
+    onUnlockSecretCrown,
   } = useContext(BugReactionContext);
 
   const muteBounceSoundRef = useRef(muteBounceSound);
@@ -345,11 +597,18 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
   const isSleepHoursRef = useRef(isSleepHours);
   isSleepHoursRef.current = isSleepHours;
 
+  const canSuperSaiyanRef = useRef(canSuperSaiyan);
+  canSuperSaiyanRef.current = canSuperSaiyan;
+
+  const onUnlockSecretCrownRef = useRef(onUnlockSecretCrown);
+  onUnlockSecretCrownRef.current = onUnlockSecretCrown;
+
   const [gazeOffset, setGazeOffset] = useState<{ x: -1 | 0 | 1; y: -1 | 0 | 1 }>(() =>
     gazeMode === 'down' ? { x: 0, y: 1 } : { x: 0, y: 0 }
   );
   const [isIdleBlinking, setIsIdleBlinking] = useState(false);
   const [localPetPhase, setLocalPetPhase] = useState<'none' | 'happy' | 'blink'>('none');
+  const [isSuperSaiyanPet, setIsSuperSaiyanPet] = useState(false);
   const [nightPhase, setNightPhase] = useState<NightSleepPhase>('asleep');
   const nightPhaseRef = useRef<NightSleepPhase>('asleep');
   nightPhaseRef.current = nightPhase;
@@ -359,7 +618,7 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
 
   // Estados de saltos y despertares reactivos
   const [activeJumpAnim, setActiveJumpAnim] = useState<
-    'none' | 'trophy' | 'top-hop' | 'confused'
+    'none' | 'trophy' | 'top-hop' | 'confused' | 'ssj'
   >('none');
   const [jumpAnimKey, setJumpAnimKey] = useState(0);
   const lastSeenTrophyTokenRef = useRef(trophyCelebrateToken);
@@ -407,6 +666,7 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
   const wallSparksGroupRef = useRef<SVGGElement | null>(null);
   const flightRafRef = useRef<number | null>(null);
   const bounceHappyUntilRef = useRef<number>(0);
+  const bouncesThisThrowRef = useRef<number>(0);
 
   const clearNightTimers = useCallback(() => {
     nightTimersRef.current.forEach((id) => window.clearTimeout(id));
@@ -614,6 +874,41 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
   const triggerPetSparksAndExpression = useCallback(() => {
     petTimersRef.current.forEach((id) => window.clearTimeout(id));
     petTimersRef.current = [];
+
+    if (canSuperSaiyanRef.current) {
+      if (jumpTimerRef.current !== null) window.clearTimeout(jumpTimerRef.current);
+      setIsSuperSaiyanPet(true);
+      setActiveJumpAnim('ssj');
+      setJumpAnimKey((k) => k + 1);
+      if (!muteBounceSoundRef.current) {
+        playBugSuperSaiyanSound();
+      }
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        try {
+          navigator.vibrate([25, 30, 45]);
+        } catch {
+          // Ignorar restricciones de vibración
+        }
+      }
+      emitLocalSparksBurst();
+
+      if (isSleepHoursRef.current) {
+        clearNightTimers();
+        setNightPhase('pet-happy');
+        scheduleSettleBackToSleep(2250);
+      } else {
+        setLocalPetPhase('happy');
+        const tCalm = window.setTimeout(() => setLocalPetPhase('none'), 2250);
+        petTimersRef.current.push(tCalm);
+      }
+
+      const tSsjOff = window.setTimeout(() => {
+        setIsSuperSaiyanPet(false);
+        setActiveJumpAnim((prev) => (prev === 'ssj' ? 'none' : prev));
+      }, 2250);
+      petTimersRef.current.push(tSsjOff);
+      return;
+    }
 
     if (isSleepHoursRef.current) {
       // Si lo acaricias dormido: despierta feliz y vuelve a dormirse tranquilamente
@@ -1017,6 +1312,7 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
       const scale = clampedSpeed / rawSpeed;
       puckPosRef.current.vx = vx * scale;
       puckPosRef.current.vy = vy * scale;
+      bouncesThisThrowRef.current = 0;
       setViewportSize({ w: window.innerWidth, h: window.innerHeight });
       setPuckExpression(isSleepHoursRef.current ? 'confused' : 'happy');
       bounceHappyUntilRef.current = now + 340;
@@ -1063,34 +1359,39 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
       state.x += state.vx * dt;
       state.y += state.vy * dt;
 
-      let collided = false;
+      let collidedWalls = 0;
       if (state.x <= minX) {
         state.x = minX;
         state.vx = Math.abs(state.vx) * 0.92;
         spawnWallCollisionSparks(2, state.y, 1, 0);
-        collided = true;
+        collidedWalls += 1;
       } else if (state.x >= maxX) {
         state.x = maxX;
         state.vx = -Math.abs(state.vx) * 0.92;
         spawnWallCollisionSparks(w - 2, state.y, -1, 0);
-        collided = true;
+        collidedWalls += 1;
       }
 
       if (state.y <= minY) {
         state.y = minY;
         state.vy = Math.abs(state.vy) * 0.92;
         spawnWallCollisionSparks(state.x, 2, 0, 1);
-        collided = true;
+        collidedWalls += 1;
       } else if (state.y >= maxY) {
         state.y = maxY;
         state.vy = -Math.abs(state.vy) * 0.92;
         spawnWallCollisionSparks(state.x, h - 2, 0, -1);
-        collided = true;
+        collidedWalls += 1;
       }
 
       const speedAfterBounce = Math.hypot(state.vx, state.vy);
 
-      if (collided) {
+      if (collidedWalls > 0) {
+        const prevBounces = bouncesThisThrowRef.current;
+        bouncesThisThrowRef.current += collidedWalls;
+        if (prevBounces < 6 && bouncesThisThrowRef.current >= 6) {
+          onUnlockSecretCrownRef.current?.();
+        }
         if (!muteBounceSoundRef.current) {
           playBugBounceSound(Math.min(1, speedAfterBounce / 1450));
         }
@@ -1326,6 +1627,8 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
     ? effectiveNightSleepMode
       ? 'animate-bug-confused'
       : 'animate-bug-scared'
+    : activeJumpAnim === 'ssj'
+    ? 'animate-bug-ssj'
     : activeJumpAnim === 'trophy'
     ? 'animate-bug-trophy-jump'
     : activeJumpAnim === 'confused'
@@ -1378,8 +1681,8 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
       >
         <svg
           key={`${teleportKey}-${jumpAnimKey}-${isAlarmRinging ? 'alarm' : 'calm'}`}
-          viewBox="-12 -14 40 28"
-          className={`w-[60px] h-[42px] -mx-[14px] -mt-[14px] block overflow-visible pointer-events-none ${
+          viewBox="-12 -16 40 30"
+          className={`w-[60px] h-[45px] -mx-[14px] -mt-[17px] block overflow-visible pointer-events-none ${
             isDetached ? 'opacity-0' : perchedMotionClass
           }`}
           shapeRendering="crispEdges"
@@ -1401,6 +1704,8 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
             hatColor={equippedHatColor}
             showSleepingZzz={showSleepingZzz}
             showMusicNotes={showMusicNotes}
+            isGrown={isGrown}
+            isSuperSaiyan={!isDetached && isSuperSaiyanPet}
           />
           <g ref={petSparksGroupRef} />
         </svg>
@@ -1454,6 +1759,7 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
                     isFullCircle
                     hat={equippedHat}
                     hatColor={equippedHatColor}
+                    isGrown={isGrown}
                   />
                 </g>
               </g>
@@ -1466,6 +1772,7 @@ export const BugPerch: React.FC<BugPerchProps> = React.memo(({
                   isFullCircle
                   hat={equippedHat}
                   hatColor={equippedHatColor}
+                  isGrown={isGrown}
                 />
               </g>
             )}
@@ -1586,14 +1893,15 @@ export const BugUnlockBanner: React.FC<BugUnlockBannerProps> = ({
 }) => {
   const { language } = useI18n();
   const copy = getBugMilestoneCopy(milestone, language);
+  const preview = getMilestonePreviewConfig(milestone);
   const isPlayMilestone = milestone === 'level5';
-  const isCustomMilestone = milestone === 'level25';
+  const isMajorMilestone = milestone !== 'level3' && milestone !== 'level4';
   const litSlotsCount =
-    milestone === 'level25' || milestone === 'level5'
-      ? 5
+    milestone === 'level3'
+      ? 2
       : milestone === 'level4'
       ? 3
-      : 2;
+      : 5;
 
   return (
     <div
@@ -1609,18 +1917,18 @@ export const BugUnlockBanner: React.FC<BugUnlockBannerProps> = ({
 
       <div className="relative w-16 h-16 trophy-oled-window border border-accent-fill flex items-center justify-center shrink-0 overflow-hidden animate-trophy-emblem">
         <svg
-          viewBox="-5 -5 26 24"
-          className="w-12 h-12 block"
+          viewBox="-6 -13 28 29"
+          className="w-13 h-13 block overflow-visible"
           shapeRendering="crispEdges"
           aria-hidden="true"
         >
           {/* Chispas decorativas 8-bits en el emblema de desbloqueo */}
-          <rect x={-3} y={0} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
-          <rect x={17.5} y={-1} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
-          {(isPlayMilestone || isCustomMilestone) && (
+          <rect x={-4} y={-2} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
+          <rect x={18.5} y={-3} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
+          {isMajorMilestone && (
             <>
-              <rect x={-3.5} y={11} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
-              <rect x={18} y={12} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
+              <rect x={-4.5} y={11} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
+              <rect x={19} y={12} width={1.5} height={1.5} fill="var(--app-accent-fill)" />
             </>
           )}
           <BugPixelGraphic
@@ -1628,8 +1936,10 @@ export const BugUnlockBanner: React.FC<BugUnlockBannerProps> = ({
             gazeX={0}
             gazeY={0}
             isFullCircle={isPlayMilestone}
-            hat={isCustomMilestone ? 'headphones' : 'none'}
-            hatColor={DEFAULT_BUG_HAT_COLORS.headphones}
+            hat={preview.hat}
+            hatColor={preview.hat === 'none' ? undefined : getResolvedBugHatColor(preview.hat)}
+            isGrown={preview.isGrown}
+            isSuperSaiyan={preview.isSuperSaiyan}
           />
         </svg>
       </div>

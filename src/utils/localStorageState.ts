@@ -4,8 +4,12 @@
  */
 
 import {
+  ALL_WEARABLE_HAT_IDS,
+  BUG_HATS_CATALOG,
   DEFAULT_BUG_HAT_COLORS,
   isBugDefaultPhraseKey,
+  isValidBugHatId,
+  isValidBugWearableHatId,
   sanitizeRgbColor,
 } from '../data/bugCompanionData';
 import { isValidUiTextKey } from '../i18n/translations';
@@ -18,6 +22,7 @@ import {
   BugDialogueCategory,
   BugHatId,
   BugMusicMode,
+  BugWearableHatId,
   CompletedWorkout,
   CustomBugPhrase,
   CustomTextsByLanguage,
@@ -369,7 +374,7 @@ function sanitizeCustomBugPhrases(
 }
 
 function sanitizeBugSelectedHat(raw: unknown): BugHatId | undefined {
-  if (raw === 'none' || raw === 'headphones' || raw === 'bow') {
+  if (isValidBugHatId(raw)) {
     return raw;
   }
   return undefined;
@@ -382,21 +387,26 @@ function sanitizeBugMusicMode(raw: unknown): BugMusicMode | undefined {
   return undefined;
 }
 
+function sanitizeBugUnlockedHats(raw: unknown): BugWearableHatId[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const unique = Array.from(new Set(raw.filter(isValidBugWearableHatId)));
+  return unique.length > 0 ? unique : undefined;
+}
+
 function sanitizeBugHatColors(
   raw: unknown
-): Partial<Record<Exclude<BugHatId, 'none'>, RgbColor>> | undefined {
+): Partial<Record<BugWearableHatId, RgbColor>> | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const rec = raw as Record<string, unknown>;
-  const result: Partial<Record<Exclude<BugHatId, 'none'>, RgbColor>> = {};
+  const result: Partial<Record<BugWearableHatId, RgbColor>> = {};
   let hasAny = false;
 
-  if (rec.headphones && typeof rec.headphones === 'object') {
-    result.headphones = sanitizeRgbColor(rec.headphones, DEFAULT_BUG_HAT_COLORS.headphones);
-    hasAny = true;
-  }
-  if (rec.bow && typeof rec.bow === 'object') {
-    result.bow = sanitizeRgbColor(rec.bow, DEFAULT_BUG_HAT_COLORS.bow);
-    hasAny = true;
+  for (const hatId of ALL_WEARABLE_HAT_IDS) {
+    const val = rec[hatId];
+    if (val && typeof val === 'object') {
+      result[hatId] = sanitizeRgbColor(val, DEFAULT_BUG_HAT_COLORS[hatId]);
+      hasAny = true;
+    }
   }
   return hasAny ? result : undefined;
 }
@@ -784,7 +794,49 @@ export function hydrateSanitizedAppState(
     : resolvedBugUnlockedAtIso && hydratedPeakLevel >= 25
     ? resolvedBugUnlockedAtIso
     : undefined;
-  const sanitizedSelectedHat = sanitizeBugSelectedHat(parsed.bugSelectedHat);
+  const resolvedBugGrownUnlockedAtIso = isIsoDateString(parsed.bugGrownUnlockedAtIso)
+    ? parsed.bugGrownUnlockedAtIso
+    : resolvedBugUnlockedAtIso && hydratedPeakLevel >= 50
+    ? resolvedBugUnlockedAtIso
+    : undefined;
+  const resolvedBugSuperSaiyanUnlockedAtIso = isIsoDateString(parsed.bugSuperSaiyanUnlockedAtIso)
+    ? parsed.bugSuperSaiyanUnlockedAtIso
+    : resolvedBugUnlockedAtIso && hydratedPeakLevel >= 90
+    ? resolvedBugUnlockedAtIso
+    : undefined;
+  const resolvedBugSecretCrownUnlockedAtIso = isIsoDateString(parsed.bugSecretCrownUnlockedAtIso)
+    ? parsed.bugSecretCrownUnlockedAtIso
+    : undefined;
+  const resolvedBugSecretScouterUnlockedAtIso = isIsoDateString(
+    parsed.bugSecretScouterUnlockedAtIso
+  )
+    ? parsed.bugSecretScouterUnlockedAtIso
+    : undefined;
+
+  const explicitUnlockedHats = sanitizeBugUnlockedHats(parsed.bugUnlockedHats);
+  const migratedLevelHats: BugWearableHatId[] = resolvedBugUnlockedAtIso
+    ? BUG_HATS_CATALOG.filter(
+        (h) => !h.isSecret && h.unlockLevel !== undefined && hydratedPeakLevel >= h.unlockLevel
+      ).map((h) => h.id)
+    : [];
+  const mergedUnlockedHatsSet = new Set<BugWearableHatId>([
+    ...(explicitUnlockedHats ?? []),
+    ...migratedLevelHats,
+    ...(resolvedBugSecretCrownUnlockedAtIso ? (['crown'] as const) : []),
+    ...(resolvedBugSecretScouterUnlockedAtIso ? (['scouter'] as const) : []),
+  ]);
+  const resolvedUnlockedHats =
+    mergedUnlockedHatsSet.size > 0 ? Array.from(mergedUnlockedHatsSet) : undefined;
+
+  const rawSelectedHat = sanitizeBugSelectedHat(parsed.bugSelectedHat);
+  const sanitizedSelectedHat: BugHatId | undefined =
+    rawSelectedHat === 'none'
+      ? 'none'
+      : rawSelectedHat && mergedUnlockedHatsSet.has(rawSelectedHat)
+      ? rawSelectedHat
+      : rawSelectedHat
+      ? 'none'
+      : undefined;
   const sanitizedHatColors = sanitizeBugHatColors(parsed.bugHatColors);
   const sanitizedMusicMode = sanitizeBugMusicMode(parsed.bugMusicMode);
 
@@ -849,6 +901,22 @@ export function hydrateSanitizedAppState(
     ...(resolvedBugCustomizationUnlockedAtIso
       ? { bugCustomizationUnlockedAtIso: resolvedBugCustomizationUnlockedAtIso }
       : {}),
+    ...(resolvedBugGrownUnlockedAtIso
+      ? { bugGrownUnlockedAtIso: resolvedBugGrownUnlockedAtIso }
+      : {}),
+    ...(resolvedBugSuperSaiyanUnlockedAtIso
+      ? { bugSuperSaiyanUnlockedAtIso: resolvedBugSuperSaiyanUnlockedAtIso }
+      : {}),
+    ...(typeof parsed.bugDisableSuperSaiyan === 'boolean'
+      ? { bugDisableSuperSaiyan: parsed.bugDisableSuperSaiyan }
+      : {}),
+    ...(resolvedBugSecretCrownUnlockedAtIso
+      ? { bugSecretCrownUnlockedAtIso: resolvedBugSecretCrownUnlockedAtIso }
+      : {}),
+    ...(resolvedBugSecretScouterUnlockedAtIso
+      ? { bugSecretScouterUnlockedAtIso: resolvedBugSecretScouterUnlockedAtIso }
+      : {}),
+    ...(resolvedUnlockedHats ? { bugUnlockedHats: resolvedUnlockedHats } : {}),
     ...(sanitizedSelectedHat ? { bugSelectedHat: sanitizedSelectedHat } : {}),
     ...(sanitizedHatColors ? { bugHatColors: sanitizedHatColors } : {}),
     ...(sanitizedMusicMode ? { bugMusicMode: sanitizedMusicMode } : {}),
