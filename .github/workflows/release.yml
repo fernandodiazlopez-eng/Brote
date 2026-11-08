@@ -10,10 +10,10 @@ jobs:
       - name: Descargar código
         uses: actions/checkout@v4
 
-      - name: Configurar Node.js
+      - name: Configurar Node.js (Versión 20)
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
 
       - name: Instalar dependencias del proyecto
         run: npm install --legacy-peer-deps
@@ -24,9 +24,9 @@ jobs:
       - name: Compilar proyecto web
         run: npm run build || true
 
-      - name: Generar proyecto Android y compilar APK
+      - name: Generar configuración y compilar APK
         run: |
-          npx cap init Brote com.brote.app --web-dir dist || true
+          echo '{"appId":"com.brote.app","appName":"Brote","webDir":"dist"}' > capacitor.config.json
           npx cap add android || true
           npx cap sync android || true
           cd android && ./gradlew assembleDebug
