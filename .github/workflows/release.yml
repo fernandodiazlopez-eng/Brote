@@ -30,11 +30,12 @@ jobs:
       - name: Compilar proyecto web
         run: npm run build || true
 
-      - name: Generar configuración y compilar APK
+      - name: Generar configuración, inyectar permisos y compilar APK
         run: |
           echo '{"appId":"com.brote.app","appName":"Brote","webDir":"dist"}' > capacitor.config.json
           npx cap add android || true
           npx cap sync android || true
+          node inject-manifest.mjs
           cd android && ./gradlew assembleDebug
 
       - name: Guardar ejecutable APK
