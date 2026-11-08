@@ -16,10 +16,10 @@ jobs:
           node-version: 18
 
       - name: Instalar dependencias del proyecto
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Instalar herramientas de Capacitor
-        run: npm install @capacitor/core @capacitor/cli @capacitor/android
+        run: npm install @capacitor/core @capacitor/cli @capacitor/android --legacy-peer-deps
 
       - name: Compilar proyecto web
         run: npm run build || true
