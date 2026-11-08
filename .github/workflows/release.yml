@@ -25,7 +25,7 @@ jobs:
         run: npm install --legacy-peer-deps
 
       - name: Instalar herramientas y plugins de Capacitor v6
-        run: npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capawesome/capacitor-health-connect @capacitor-community/pedometer @capacitor/haptics @capacitor-community/native-audio --legacy-peer-deps
+        run: npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capawesome/capacitor-health-connect @capgo/capacitor-pedometer @capacitor/haptics @capacitor-community/native-audio --legacy-peer-deps
 
       - name: Compilar proyecto web
         run: npm run build || true

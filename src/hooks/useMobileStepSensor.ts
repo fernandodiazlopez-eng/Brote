@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { CapacitorPedometer } from '@capgo/capacitor-pedometer';
 import {
   getAccelerometerCtor,
   getLinearAccelerationSensorCtor,
@@ -89,9 +90,32 @@ export function useMobileStepSensor({
       }
     };
 
-    // 1. Si hay contador nativo de pasos por hardware o Google Health Connect, sincronizar
+    // 1. Si hay contador nativo de pasos por hardware, @capgo/capacitor-pedometer o Health Connect, sincronizar
     const nativeBridge = getNativePedometerBridge();
     const syncFromNativeHardware = async () => {
+      // Intento 1: @capgo/capacitor-pedometer
+      try {
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
+        const measurement = await CapacitorPedometer.getMeasurement({
+          start: startOfDay,
+          end: now.getTime(),
+        });
+        if (!disposed && typeof measurement?.numberOfSteps === 'number' && measurement.numberOfSteps > 0) {
+          markActive();
+          const rounded = Math.round(measurement.numberOfSteps);
+          if (totalSyncCallbackRef.current) {
+            totalSyncCallbackRef.current(rounded);
+          } else if (rounded > savedStepsRef.current) {
+            deltaCallbackRef.current(rounded - savedStepsRef.current);
+          }
+          return;
+        }
+      } catch {
+        // Continuar con otros puentes
+      }
+
+      // Intento 2: Puente nativo alternativo
       if (nativeBridge && typeof nativeBridge.getTodaySteps === 'function') {
         try {
           const hwSteps = await nativeBridge.getTodaySteps();
@@ -110,7 +134,7 @@ export function useMobileStepSensor({
         }
       }
 
-      // Sincronización automática con Health Connect (Capacitor)
+      // Intento 3: Sincronización automática con Health Connect (Capacitor)
       try {
         const hcData = await syncNativeHealthConnect();
         if (!disposed && hcData && hcData.stepsToday > 0) {
@@ -125,6 +149,26 @@ export function useMobileStepSensor({
         // Ignorar si no está configurado
       }
     };
+
+    // Suscripción en tiempo real a @capgo/capacitor-pedometer
+    let pedometerListenerHandle: { remove: () => Promise<void> } | null = null;
+    try {
+      void CapacitorPedometer.startMeasurementUpdates().catch(() => {});
+      void CapacitorPedometer.addListener('measurement', (event) => {
+        if (disposed) return;
+        if (typeof event?.numberOfSteps === 'number' && event.numberOfSteps > 0) {
+          markActive();
+          const rounded = Math.round(event.numberOfSteps);
+          if (totalSyncCallbackRef.current) {
+            totalSyncCallbackRef.current(rounded);
+          }
+        }
+      }).then((handle) => {
+        pedometerListenerHandle = handle;
+      }).catch(() => {});
+    } catch {
+      // Ignorar en entorno web
+    }
 
     if (nativeBridge) {
       void syncFromNativeHardware();
@@ -285,6 +329,14 @@ export function useMobileStepSensor({
 
     return () => {
       disposed = true;
+      if (pedometerListenerHandle) {
+        void pedometerListenerHandle.remove().catch(() => {});
+      }
+      try {
+        void CapacitorPedometer.stopMeasurementUpdates().catch(() => {});
+      } catch {
+        // Ignorar
+      }
       window.clearInterval(flushIntervalId);
       window.removeEventListener('pointerdown', handlePointerDown);
       window.removeEventListener('devicemotion', handleDeviceMotion);

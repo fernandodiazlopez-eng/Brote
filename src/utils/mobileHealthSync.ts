@@ -7,6 +7,8 @@
  *   si la app se ejecuta empaquetada con podómetro de hardware (`StepCounter` / `Pedometer`).
  */
 
+import { CapacitorPedometer } from '@capgo/capacitor-pedometer';
+
 interface DeviceMotionEventWithPermission {
   requestPermission?: () => Promise<'granted' | 'denied' | 'default'>;
 }
@@ -31,6 +33,29 @@ export interface NativePedometerBridge {
   getTodaySteps?: () => Promise<number>;
   start?: (onStep?: (totalTodaySteps: number) => void) => Promise<void> | void;
   stop?: () => Promise<void> | void;
+}
+
+/**
+ * Consulta de pasos directos a través del plugin nativo @capgo/capacitor-pedometer
+ */
+export async function getCapgoPedometerSteps(): Promise<number | null> {
+  if (typeof window === 'undefined') return null;
+  try {
+    const isAvail = await CapacitorPedometer.isAvailable();
+    if (!isAvail?.stepCounting) return null;
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
+    const measurement = await CapacitorPedometer.getMeasurement({
+      start: startOfDay,
+      end: now.getTime(),
+    });
+    if (typeof measurement?.numberOfSteps === 'number' && measurement.numberOfSteps >= 0) {
+      return Math.round(measurement.numberOfSteps);
+    }
+  } catch {
+    // Continuar en caso de no estar en entorno nativo
+  }
+  return null;
 }
 
 export interface HealthSummaryData {
@@ -189,7 +214,17 @@ export async function requestMotionSensorPermission(): Promise<
 > {
   if (!isMotionSensorSupported()) return 'unsupported';
 
-  // 1) Si existe puente nativo de podómetro de hardware (ACTIVITY_RECOGNITION / CMPedometer)
+  // 1) Si existe @capgo/capacitor-pedometer en entorno nativo
+  try {
+    const perm = await CapacitorPedometer.requestPermissions();
+    if (perm?.activityRecognition === 'granted') {
+      return 'granted';
+    }
+  } catch {
+    // Continuar con los puentes adicionales
+  }
+
+  // 2) Si existe puente nativo de podómetro de hardware (ACTIVITY_RECOGNITION / CMPedometer)
   const nativeBridge = getNativePedometerBridge();
   if (nativeBridge && typeof nativeBridge.requestPermission === 'function') {
     try {
