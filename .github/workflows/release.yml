@@ -15,13 +15,16 @@ jobs:
         with:
           node-version: 18
 
-      - name: Instalar dependencias
+      - name: Instalar dependencias del proyecto
         run: npm install
 
-      - name: Compilar Web
+      - name: Instalar herramientas de Capacitor
+        run: npm install @capacitor/core @capacitor/cli @capacitor/android
+
+      - name: Compilar proyecto web
         run: npm run build || true
 
-      - name: Generar APK de Android
+      - name: Generar proyecto Android y compilar APK
         run: |
           npx cap init Brote com.brote.app --web-dir dist || true
           npx cap add android || true
