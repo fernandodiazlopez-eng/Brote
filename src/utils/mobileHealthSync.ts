@@ -33,6 +33,14 @@ export interface NativePedometerBridge {
   stop?: () => Promise<void> | void;
 }
 
+export interface HealthSummaryData {
+  stepsToday: number;
+  caloriesBurnedTodayKcal: number;
+  distanceTodayKm: number;
+  isAvailable: boolean;
+  hasPermissions: boolean;
+}
+
 export function getNativePedometerBridge(): NativePedometerBridge | null {
   if (typeof window === 'undefined') return null;
   const win = window as unknown as {
@@ -40,7 +48,11 @@ export function getNativePedometerBridge(): NativePedometerBridge | null {
     StepCounter?: NativePedometerBridge;
     Capacitor?: {
       Plugins?: {
-        Pedometer?: NativePedometerBridge;
+        Pedometer?: NativePedometerBridge & {
+          getDistance?: () => Promise<{ distance: number }>;
+          getStepCount?: () => Promise<{ numberOfSteps: number }>;
+          startPedometerUpdates?: (options: Record<string, unknown>, callback: (data: { numberOfSteps: number; distance?: number }) => void) => Promise<void>;
+        };
         StepCounter?: NativePedometerBridge;
       };
     };
@@ -52,6 +64,91 @@ export function getNativePedometerBridge(): NativePedometerBridge | null {
     win.Capacitor?.Plugins?.StepCounter ||
     null
   );
+}
+
+/**
+ * Consulta y sincroniza datos de salud desde Google Health Connect (Android 14+ / APK)
+ * usando el plugin de Capacitor @capawesome/capacitor-health-connect.
+ */
+export async function syncNativeHealthConnect(): Promise<HealthSummaryData | null> {
+  if (typeof window === 'undefined') return null;
+
+  const win = window as unknown as {
+    Capacitor?: {
+      Plugins?: {
+        HealthConnect?: {
+          checkAvailability?: () => Promise<{ availability: string }>;
+          requestPermissions?: (options: { read: string[]; write?: string[] }) => Promise<void>;
+          getRecord?: (options: Record<string, unknown>) => Promise<Record<string, unknown>>;
+          getSteps?: (options: { startTime: string; endTime: string }) => Promise<{ count: number }>;
+          getTotalCaloriesBurned?: (options: { startTime: string; endTime: string }) => Promise<{ energy: { inKilocalories: number } }>;
+          getDistance?: (options: { startTime: string; endTime: string }) => Promise<{ distance: { inMeters: number } }>;
+        };
+      };
+    };
+  };
+
+  const healthConnect = win.Capacitor?.Plugins?.HealthConnect;
+  if (!healthConnect) return null;
+
+  try {
+    const availability = await healthConnect.checkAvailability?.();
+    const isAvailable = availability?.availability === 'AVAILABLE';
+    if (!isAvailable) {
+      return {
+        stepsToday: 0,
+        caloriesBurnedTodayKcal: 0,
+        distanceTodayKm: 0,
+        isAvailable: false,
+        hasPermissions: false,
+      };
+    }
+
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).toISOString();
+    const endOfDay = now.toISOString();
+
+    let steps = 0;
+    let calories = 0;
+    let distanceKm = 0;
+
+    try {
+      const stepsRes = await healthConnect.getSteps?.({ startTime: startOfDay, endTime: endOfDay });
+      if (typeof stepsRes?.count === 'number') {
+        steps = Math.round(stepsRes.count);
+      }
+    } catch {
+      // Ignorar si el usuario no concedió lectura de pasos
+    }
+
+    try {
+      const calsRes = await healthConnect.getTotalCaloriesBurned?.({ startTime: startOfDay, endTime: endOfDay });
+      if (typeof calsRes?.energy?.inKilocalories === 'number') {
+        calories = Math.round(calsRes.energy.inKilocalories);
+      }
+    } catch {
+      // Ignorar si no está concedido
+    }
+
+    try {
+      const distRes = await healthConnect.getDistance?.({ startTime: startOfDay, endTime: endOfDay });
+      if (typeof distRes?.distance?.inMeters === 'number') {
+        distanceKm = Number((distRes.distance.inMeters / 1000).toFixed(2));
+      }
+    } catch {
+      // Ignorar si no está concedido
+    }
+
+    return {
+      stepsToday: steps,
+      caloriesBurnedTodayKcal: calories,
+      distanceTodayKm: distanceKm,
+      isAvailable: true,
+      hasPermissions: true,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function getLinearAccelerationSensorCtor(): W3CMotionSensorConstructor | null {

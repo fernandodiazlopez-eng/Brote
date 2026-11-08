@@ -14,6 +14,7 @@ import {
   getNativePedometerBridge,
   isMotionSensorSupported,
   needsExplicitMotionPermission,
+  syncNativeHealthConnect,
   W3CMotionSensorInstance,
 } from '../utils/mobileHealthSync';
 
@@ -88,22 +89,40 @@ export function useMobileStepSensor({
       }
     };
 
-    // 1. Si hay contador nativo de pasos por hardware, leer y suscribirse también al volver de pantalla apagada
+    // 1. Si hay contador nativo de pasos por hardware o Google Health Connect, sincronizar
     const nativeBridge = getNativePedometerBridge();
     const syncFromNativeHardware = async () => {
-      if (!nativeBridge || typeof nativeBridge.getTodaySteps !== 'function') return;
+      if (nativeBridge && typeof nativeBridge.getTodaySteps === 'function') {
+        try {
+          const hwSteps = await nativeBridge.getTodaySteps();
+          if (!disposed && Number.isFinite(hwSteps) && hwSteps > 0) {
+            markActive();
+            const rounded = Math.round(hwSteps);
+            if (totalSyncCallbackRef.current) {
+              totalSyncCallbackRef.current(rounded);
+            } else if (rounded > savedStepsRef.current) {
+              deltaCallbackRef.current(rounded - savedStepsRef.current);
+            }
+            return;
+          }
+        } catch {
+          // Continuar con Health Connect
+        }
+      }
+
+      // Sincronización automática con Health Connect (Capacitor)
       try {
-        const hwSteps = await nativeBridge.getTodaySteps();
-        if (disposed || !Number.isFinite(hwSteps) || hwSteps <= 0) return;
-        markActive();
-        const rounded = Math.round(hwSteps);
-        if (totalSyncCallbackRef.current) {
-          totalSyncCallbackRef.current(rounded);
-        } else if (rounded > savedStepsRef.current) {
-          deltaCallbackRef.current(rounded - savedStepsRef.current);
+        const hcData = await syncNativeHealthConnect();
+        if (!disposed && hcData && hcData.stepsToday > 0) {
+          markActive();
+          if (totalSyncCallbackRef.current) {
+            totalSyncCallbackRef.current(hcData.stepsToday);
+          } else if (hcData.stepsToday > savedStepsRef.current) {
+            deltaCallbackRef.current(hcData.stepsToday - savedStepsRef.current);
+          }
         }
       } catch {
-        // Ignorar errores del puente nativo
+        // Ignorar si no está configurado
       }
     };
 

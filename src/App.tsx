@@ -258,7 +258,80 @@ export default function App() {
   const hideBug = Boolean(appState.hideBug);
   const showBug = isBugUnlocked && !hideBug;
 
-  const bugMusicMode: BugMusicMode = appState.bugMusicMode === 'on' ? 'on' : 'off';
+  const [isNativeMusicPlaying, setIsNativeMusicPlaying] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    // Barrera de seguridad: Solo activar listeners y polling si estamos dentro de Capacitor / Android nativo
+    const win = window as unknown as {
+      Capacitor?: { isNativePlatform?: () => boolean; getPlatform?: () => string };
+      AndroidBridge?: { isMusicPlaying?: () => boolean };
+      onNativeMusicPlaybackChanged?: (isPlaying: boolean) => void;
+    };
+
+    const isNativeAndroid = Boolean(
+      win.AndroidBridge ||
+      win.Capacitor?.isNativePlatform?.() ||
+      win.Capacitor?.getPlatform?.() === 'android'
+    );
+
+    // En navegador web estándar, mantener compatibilidad total sin activar polling nativo
+    if (!isNativeAndroid) {
+      return;
+    }
+
+    const handleNativeMusic = (e: Event) => {
+      try {
+        const customEvent = e as CustomEvent<{ isPlaying?: boolean }>;
+        if (typeof customEvent.detail?.isPlaying === 'boolean') {
+          setIsNativeMusicPlaying(customEvent.detail.isPlaying);
+        }
+      } catch {
+        // Ignorar
+      }
+    };
+
+    window.addEventListener('nativeMusicPlayback', handleNativeMusic);
+    win.onNativeMusicPlaybackChanged = (isPlaying: boolean) => {
+      try {
+        setIsNativeMusicPlaying(Boolean(isPlaying));
+      } catch {
+        // Ignorar
+      }
+    };
+
+    const checkMusicState = () => {
+      try {
+        if (win.AndroidBridge && typeof win.AndroidBridge.isMusicPlaying === 'function') {
+          const playing = Boolean(win.AndroidBridge.isMusicPlaying());
+          setIsNativeMusicPlaying((prev) => (prev !== playing ? playing : prev));
+        }
+      } catch {
+        // Ignorar si el puente lanza alguna excepción
+      }
+    };
+
+    checkMusicState();
+    const pollInterval = window.setInterval(checkMusicState, 1200);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        checkMusicState();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      window.clearInterval(pollInterval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('nativeMusicPlayback', handleNativeMusic);
+      delete win.onNativeMusicPlaybackChanged;
+    };
+  }, []);
+
+  const bugMusicMode: BugMusicMode =
+    appState.bugMusicMode === 'on' || isNativeMusicPlaying ? 'on' : 'off';
 
   const bugUnlockedHats = useMemo<BugWearableHatId[]>(() => {
     const unlocked = new Set<BugWearableHatId>(appState.bugUnlockedHats ?? []);

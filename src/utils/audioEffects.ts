@@ -11,6 +11,12 @@
  */
 
 import { TrophyTier } from '../types';
+import {
+  areHeadphonesConnected,
+  startPrivateTimerAlarm,
+  stopPrivateTimerAlarm,
+  triggerNativeHapticAlarm,
+} from './nativePrivateAlarm';
 
 let sharedAudioContext: AudioContext | null = null;
 let alarmLoopIntervalId: number | null = null;
@@ -1214,35 +1220,10 @@ export function startTimerAlarm(
   cancelScheduledSuspend();
   configureAudioSessionMode('playback');
 
-  // IMPORTANTE: Si la pista continua iniciada en el toque del usuario ya está sonando (especialmente fuera de la app
-  // o con pantalla apagada), NO pausarla para no perder el canal de audio activo del sistema operativo.
-  const isPrebakedTrackRinging =
-    countdownTrackAudio !== null && !countdownTrackAudio.paused && !countdownTrackAudio.ended;
-
-  if (!isPrebakedTrackRinging) {
-    stopCountdownTrackAudio();
-    const loopEl = getOrCreateAlarmLoopAudio();
-    if (loopEl) {
-      loopEl.muted = false;
-      loopEl.volume = 1.0;
-      loopEl.currentTime = 0;
-      void loopEl.play().catch(() => {});
-    }
-    playAlarmChimeWebAudioOnce(true);
-  } else {
-    playAlarmChimeWebAudioOnce(false);
-  }
-
-  if (typeof window !== 'undefined') {
-    alarmLoopIntervalId = window.setInterval(() => {
-      const stillPlayingHtmlTrack =
-        (countdownTrackAudio !== null &&
-          !countdownTrackAudio.paused &&
-          !countdownTrackAudio.ended) ||
-        (alarmLoopTrackAudio !== null && !alarmLoopTrackAudio.paused);
-      playAlarmChimeWebAudioOnce(!stillPlayingHtmlTrack);
-    }, 1500);
-  }
+  // ALARMA PRIVADA NATIVA (STREAM_MUSIC / USAGE_MEDIA):
+  // Si hay auriculares conectados, suena exclusivamente por los auriculares.
+  // Si NO hay auriculares conectados, NUNCA reproduce sonido por el altavoz externo (solo vibra).
+  void startPrivateTimerAlarm({ routineTitle, notificationsEnabled });
 
   if (!notificationsEnabled) return;
 
@@ -1295,6 +1276,7 @@ export function startTimerAlarm(
 }
 
 export function stopTimerAlarm(): void {
+  stopPrivateTimerAlarm();
   isCountdownArmed = false;
   stopCountdownTrackAudio();
 
